@@ -1,0 +1,30 @@
+# Third-party code linked into a MISAKA Torrent binary, pinned by version and source digest
+# (RFC-0001 §6.1). Only the `libtorrent` feature links anything here; the default build links
+# no C++.
+
+[libtorrent-rasterbar]
+version = "2.0.15"
+license = "BSD-3-Clause"
+source = "https://github.com/arvidn/libtorrent/releases/download/v2.0.15/libtorrent-rasterbar-2.0.15.tar.gz"
+# The release asset's digest as GitHub records it (checked 2026-10-03). Verify a download with
+# `shasum -a 256` before building it.
+sha256 = "5e2e79129823b7ea48721164c32b5aaf83d3fd733b5502100f6705b29f27bb02"
+size = 4740499
+# Why 2.0.x: BEP 52 and v2-only creation; piece sizes above 128 MiB are refused by the library.
+# The shim is checked against this exact version by crates/misaka-transport-engine/build.rs.
+# Patches applied on top of the pinned source (third_party/patches/), in order:
+# - libtorrent-2.0.15-i2p-v2-peers.patch: peers learned from an I2P tracker are added without the
+#   v2 flag, so a v2-only torrent (every MISAKA bundle) handshakes with its empty v1 info-hash and
+#   every I2P peer drops the connection. The patch marks them v2 when the torrent has no v1 hash,
+#   as libtorrent already does for peers with an IP address. Found in RFC-0002 P1 (2026-10-03);
+#   to be proposed upstream.
+patches = ["third_party/patches/libtorrent-2.0.15-i2p-v2-peers.patch"]
+
+[i2pd]
+version = "2.61.0"
+license = "BSD-3-Clause"
+source = "https://github.com/PurpleI2P/i2pd/tree/2.61.0"
+# The signed tag 2.61.0 (tag object 4fef5596f366be4b174a4d090d118e7679707a38, verified on GitHub)
+# points at this commit; build from it, not from a moving branch.
+commit = "635b013a612ff47278ef02acf8580a28e10e26c5"
+# Used by RFC-0002 (Private and Anonymous modes) as the I2P router; not linked into any binary.

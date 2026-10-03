@@ -1,0 +1,12 @@
+[package]
+name = "misaka-transport-ipc"
+description = "misaka-torrent-borsh/v1: the local IPC between misaka-torrentd and its callers (RFC-0001 §6.2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+borsh.workspace = true
+thiserror.workspace = true

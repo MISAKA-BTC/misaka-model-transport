@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/misaka-bundle",
+    "crates/misaka-btv2",
+    "crates/misaka-transport-policy",
+    "crates/misaka-transport-ipc",
+    "crates/misaka-transport-engine",
+    "bin/misaka-torrentd",
+    "bin/misaka-torrent",
+    "bin/misaka-i2p-tracker",
+]
+# `fuzz/` is its own cargo-fuzz workspace (nightly only); `app/src-tauri` is the desktop app's own
+# workspace (it needs a GUI toolkit). The libtorrent backend is the
+# `libtorrent` feature of misaka-transport-engine and misaka-torrentd, off by default (RFC-0001
+# §1.3): every crate here builds and tests without a C++ toolchain.
+exclude = ["fuzz", "app/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/MISAKA-BTC/misaka-model-transport"
+rust-version = "1.85"
+
+[workspace.dependencies]
+misaka-bundle = { path = "crates/misaka-bundle" }
+misaka-btv2 = { path = "crates/misaka-btv2" }
+misaka-transport-policy = { path = "crates/misaka-transport-policy" }
+misaka-transport-ipc = { path = "crates/misaka-transport-ipc" }
+misaka-transport-engine = { path = "crates/misaka-transport-engine" }
+
+blake2b_simd = "1"
+borsh = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+toml = "0.8"
+
+[profile.release]
+overflow-checks = true

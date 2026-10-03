@@ -1,0 +1,63 @@
+{
+  "bundles": [
+    {
+      "base_model": "Qwen/Qwen2.5-1.5B",
+      "btv2_infohash": "3e9a731329490f920d7b3f4ea35905ac815a7c76cdae434e13bbca52416d44b7",
+      "bundle_commitment": "74f50d2c9a31ecd51bb04f8b44d24eed9c7814da46369edae8dfa00ef3a3427c983508bf2495ed871fe96b0053c22a38c0617225e6babae5e3846ee58854e085",
+      "class_id": "ebf44d0aa09ff7d1310a7855ab4005c275cdce557e32c269b0f3a984ea80ca73ad1ea0c9b1c0539c8ae04abb5fe24399e67e05bb0895a3dee82253e772246d01",
+      "created": "2026-10-03",
+      "files": [
+        {
+          "path": "LICENSE",
+          "role": "license",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "size": 11357
+        },
+        {
+          "path": "README.md",
+          "role": "readme",
+          "sha256": "b118a2b503e2f54b09f6a6e2f9c645f3dc0daee0abea83b783fc911bb3972a64",
+          "size": 397
+        },
+        {
+          "path": "qwen25-1.5b-a16-8k.palwart",
+          "role": "palw-container",
+          "sha256": "b73600cfeef3f54fd6e9f6a831c504588aa3b20ea2506ae824799206201e8ac8",
+          "size": 1799359436
+        },
+        {
+          "path": "qwen25-1.5b-a16-8k.palwart.palwmanifest",
+          "role": "palw-manifest",
+          "sha256": "c3cc66bc140a7fcbc949500f6ddcb6641a4d63f411c2f943e65750cd3875df4a",
+          "size": 657
+        }
+      ],
+      "kind": "palw-artifact",
+      "license": "Apache-2.0",
+      "line_id": "ebf44d0aa09ff7d1310a7855ab4005c275cdce557e32c269b0f3a984ea80ca73ad1ea0c9b1c0539c8ae04abb5fe24399e67e05bb0895a3dee82253e772246d01",
+      "palw": {
+        "artifact_digest": "f4af38d91cb4d012189051742a98322ba9a20c9e62bbc9383b0d2c03727d0e5dbb7292be7186b7bc948a28ca0e02a4f59191edc71ff37bb4d7067b559bc3f0d0",
+        "magic": "PALWB0A2",
+        "roots": [
+          {
+            "class_id": "ebf44d0aa09ff7d1310a7855ab4005c275cdce557e32c269b0f3a984ea80ca73ad1ea0c9b1c0539c8ae04abb5fe24399e67e05bb0895a3dee82253e772246d01",
+            "inventory_root": "88096dc177826d880c1c5fca4ec93cffe5ab51af108ed169a8e03cd4726308f91263f79f81904b043327bfa277e3558b1656f14259f6dd33603a9f91871aae20"
+          }
+        ]
+      },
+      "params": "1.5B",
+      "piece_length": "1.00 MiB",
+      "readme": "# qwen25-1.5b-a16-8k\n\nThe testnet-12 PALW class artifact for Qwen/Qwen2.5-1.5B/graph-v7@8192, packaged as a MISAKA Torrent\nbundle (RFC-0001). class_id ebf44d0a\u2026246d01, inventory root 88096dc1\u2026aae20.\n\nFetch with `misaka-torrent pull <magnet> --expect <bundle_commitment>`; the node digest-checks the\ncontainer at load, and `misaka model verify` recomputes its inventory root against the chain.\n",
+      "repo": "misaka/qwen25-1.5b-a16-8k",
+      "task": "text-generation",
+      "title": "qwen25-1.5b-a16-8k",
+      "torrent": "torrents/qwen25-1.5b-a16-8k.torrent",
+      "total_bytes": 1799373728,
+      "variant": "graph-v7 \u00b7 n_ctx 8192",
+      "version": 1
+    }
+  ],
+  "network": "testnet-12",
+  "schema": "misaka/torrent-index/v1",
+  "source": "release"
+}

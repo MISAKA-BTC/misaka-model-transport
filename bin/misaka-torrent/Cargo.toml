@@ -1,0 +1,18 @@
+[package]
+name = "misaka-torrent"
+description = "The chain-agnostic MISAKA Torrent tool: create, inspect, share, pull, seed, status (RFC-0001 §7.2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+clap.workspace = true
+hex.workspace = true
+misaka-btv2.workspace = true
+misaka-bundle.workspace = true
+misaka-torrentd = { path = "../misaka-torrentd" }
+misaka-transport-ipc.workspace = true
+misaka-transport-policy.workspace = true
+serde_json.workspace = true

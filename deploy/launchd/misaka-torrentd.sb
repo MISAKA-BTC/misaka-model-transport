@@ -1,0 +1,52 @@
+;; misaka-torrentd on macOS (RFC-0001 §6.5): deny by default; allow the network, the store and the
+;; runtime socket; read the configuration and the adopt root; never exec or fork.
+;;
+;;   sandbox-exec -D BIN=/usr/local/bin/misaka-torrentd -D STORE=<home>/.misaka/torrent \
+;;                -D CONFIG=<home>/.misaka/torrent.toml -D ADOPT=<dir> -D SOCKDIR=<home>/.misaka/torrent/run \
+;;                -f misaka-torrentd.sb /usr/local/bin/misaka-torrentd run --profile desktop
+;;
+;; The socket lives under STORE (<store>/run/torrentd.sock) unless XDG_RUNTIME_DIR is set.
+;; A starting profile: drill D-T9 confirms it cannot read ~/.misaka/*.seed, ~/.ssh or kaspad's
+;; datadir, cannot exec, and binds only its port and its socket.
+
+(version 1)
+(deny default)
+(import "bsd.sb")
+
+;; sandbox-exec execs the daemon after applying this profile; nothing else may be executed.
+(deny process-exec*)
+(allow process-exec (literal (param "BIN")))
+(deny process-fork)
+(allow process-info* (target self))
+(allow signal (target self))
+(allow sysctl-read)
+
+;; Peers: TCP and uTP over IPv4 and IPv6, the DHT, name resolution.
+(allow network*)
+(allow mach-lookup
+  (global-name "com.apple.SystemConfiguration.configd")
+  (global-name "com.apple.SystemConfiguration.DNSConfiguration")
+  (global-name "com.apple.dnssd.service")
+  (global-name "com.apple.networkd")
+  (global-name "com.apple.trustd.agent"))
+(allow file-read*
+  (literal "/private/etc/hosts")
+  (literal "/private/etc/resolv.conf")
+  (literal "/private/etc/services")
+  (literal "/private/etc/protocols")
+  (subpath "/private/var/run/resolv.conf")
+  (subpath "/usr/lib")
+  (subpath "/usr/local/lib")
+  (subpath "/opt/homebrew/lib")
+  (subpath "/System/Library")
+  (subpath "/Library/Preferences/SystemConfiguration"))
+
+;; The store: incomplete/, store/, state/, and the socket directory.
+(allow file-read* file-write* (subpath (param "STORE")))
+
+;; The socket's directory (the store's run/ unless the path would be too long for a socket).
+(allow file-read* file-write* (subpath (param "SOCKDIR")))
+
+;; Read-only: the configuration and the adopt root.
+(allow file-read* (literal (param "CONFIG")) (subpath (param "ADOPT")))
+(allow file-read-metadata (subpath "/"))

@@ -1,0 +1,27 @@
+[package]
+name = "misaka-transport-engine"
+description = "The ModelTransport trait, an in-memory fake swarm for tests, and the libtorrent 2.0.x backend behind the `libtorrent` feature (RFC-0001 §6.1)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+# Lets the daemon's build script read where the pinned libtorrent lives (DEP_MISAKA_LT_SHIM_RPATH).
+links = "misaka_lt_shim"
+
+[features]
+default = []
+# Links shim/libtorrent against a pinned libtorrent-rasterbar 2.0.x found by pkg-config. Needs a
+# C++17 toolchain; nothing else in the workspace does.
+libtorrent = ["dep:cc", "dep:pkg-config"]
+
+[dependencies]
+libc.workspace = true
+misaka-btv2.workspace = true
+misaka-transport-policy.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+cc = { version = "1", optional = true }
+pkg-config = { version = "0.3", optional = true }
