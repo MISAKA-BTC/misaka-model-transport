@@ -1,0 +1,15 @@
+[Unit]
+Description=misaka-i2p-tracker (RFC-0002 P1 measurement)
+[Service]
+DynamicUser=yes
+ExecStart=/opt/misaka-torrent/p1/bin/misaka-i2p-tracker --listen 127.0.0.1:7662 --interval 300
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryMax=256M
+[Install]
+WantedBy=multi-user.target

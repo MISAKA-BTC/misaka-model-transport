@@ -1,0 +1,18 @@
+# RFC-0002 P1 measurement seeder (Anonymous mode). Operator override of MP-12;
+# measurement only, on a random-bytes bundle that is not seeded in any other mode (MP-7).
+profile = "server"
+home = "/var/lib/misaka-torrent-p1seed"
+socket = "/var/lib/misaka-torrent-p1seed/run/torrentd.sock"
+[seeding]
+enabled = true
+upload_bytes_per_sec = 4194304
+[network]
+mode = "anonymous"
+[i2p]
+sam = "127.0.0.1:7656"
+trackers = ["http://wcetu2kcbbawy5oofbiz5cft4nsolt4fndvwrpuwpwz2tyn2ftoq.b32.i2p/announce"]
+[ipc]
+allowed_uids = [0]
+[[adopt_roots]]
+id = "p1"
+path = "/srv/misaka-p1"

@@ -1,0 +1,10 @@
+profile = "server"
+[seeding]
+enabled = false
+[network]
+mode = "anonymous"
+[i2p]
+sam = "127.0.0.1:7756"
+trackers = ["http://wcetu2kcbbawy5oofbiz5cft4nsolt4fndvwrpuwpwz2tyn2ftoq.b32.i2p/announce"]
+[ipc]
+allowed_uids = [0]

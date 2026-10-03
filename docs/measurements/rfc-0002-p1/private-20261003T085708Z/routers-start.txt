@@ -1,0 +1,2 @@
+seed router:  Uptime: 1 hour, 15 minutes, 52 seconds ; Tunnel creation success rate: 51% ; Received: 179.08 MiB (200.06 KiB/s) ; Sent: 197.96 MiB (215.83 KiB/s) ; Transit: 166.62 MiB (192.06 KiB/s) ; Routers: 5299 Floodfills: 1465 LeaseSets: 0 ;
+client router:  Uptime: 2 minutes, 24 seconds ; Tunnel creation success rate: 31% ; Received: 890.71 KiB (4.59 KiB/s) ; Sent: 527.66 KiB (3.51 KiB/s) ; Transit: 113.44 KiB (1.53 KiB/s) ; Routers: 2133 Floodfills: 1074 LeaseSets: 0 ;
