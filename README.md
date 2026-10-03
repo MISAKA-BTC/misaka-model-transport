@@ -20,6 +20,8 @@ the chain.
 ## Get MISAKA Torrent
 
 Download page: **https://misakaoptions.com/#/download**. Every file is listed there with its SHA-256.
+The same files are attached to [GitHub Releases](https://github.com/MISAKA-BTC/misaka-model-transport/releases)
+([v0.1.0](https://github.com/MISAKA-BTC/misaka-model-transport/releases/tag/v0.1.0)).
 
 | system | file |
 | --- | --- |
