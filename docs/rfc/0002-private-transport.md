@@ -431,6 +431,11 @@ Until then, MISAKA's anonymity is I2P's, and the labels in §8 say so.
 | P2 | `misaka-torrentd` modes (§2–§5); the app's Network setting and bundled router (§7–§8); the index field (§4.2); the leak drills | D-P1…D-P4 pass on Linux and macOS; the labels reviewed against §8 |
 | P3 | §9, only if its conditions hold | its own RFC |
 
+First P1 measurements (2026-10-03, one host, one seeder, 512 MiB):
+- **Means.** Private averaged 229 KiB/s and Anonymous 49 KiB/s.
+- **A required libtorrent patch.** Without it, libtorrent 2.0.15 cannot fetch a v2-only torrent over I2P.
+- **Details:** [docs/measurements/rfc-0002-p1](../measurements/rfc-0002-p1/README.md).
+
 ## Proposed Spec text (sketch)
 
 ### Client conformance (this repository; requirements MP-n)

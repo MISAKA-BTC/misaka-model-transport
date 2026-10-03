@@ -1,0 +1,8 @@
+mode private
+bundle 536883325 bytes (512 MiB, random)
+time to first peer: 20.888841598 s
+time to complete: 2292.090106563 s
+mean throughput: 228.7 KiB/s
+peak download rate: 1826.3 KiB/s
+instance peak RSS: 517.7 MiB
+instance CPU: 31 s

@@ -1,0 +1,3 @@
+Started mt-p1-client-private.service - /opt/misaka-torrent/p1/bin/misaka-torrentd run --profile server --config /opt/misaka-torrent/p1/results/private-20261003T075421Z/torrent.toml --home /var/lib/mt-p1-client-private --socket /run/mt-p1-client-private/s.sock.
+misaka-torrentd: confinement: landlock (fully enforced) + seccomp (exec, ptrace, mount, bpf, modules, kexec, keyctl denied); network private (I2P, 1 hop each way, 4 tunnels) — clearnet blocked below the engine
+misaka-torrentd: server profile, peer port 50324, socket /run/mt-p1-client-private/s.sock

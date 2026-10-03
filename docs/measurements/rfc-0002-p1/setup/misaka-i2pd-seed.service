@@ -1,0 +1,18 @@
+[Unit]
+Description=I2P router "seed" for MISAKA Torrent RFC-0002 P1 measurement
+After=network-online.target
+Wants=network-online.target
+[Service]
+User=misaka_i2pd
+ExecStart=/opt/misaka-torrent/i2pd/bin/i2pd --datadir=/var/lib/misaka-i2pd-seed --conf=/var/lib/misaka-i2pd-seed/i2pd.conf
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/misaka-i2pd-seed
+MemoryMax=1G
+CPUWeight=20
+Nice=10
+[Install]
+WantedBy=multi-user.target

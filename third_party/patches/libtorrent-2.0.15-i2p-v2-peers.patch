@@ -1,0 +1,14 @@
+--- a/src/torrent.cpp
++++ b/src/torrent.cpp
+@@ -3977,7 +3977,10 @@
+ 
+ 		need_peer_list();
+ 		torrent_state st = get_peer_list_state();
+-		if (m_peer_list->add_i2p_peer(dest, peer_info::tracker, {}, &st))
++		// a v2-only torrent has no v1 info-hash to put in a handshake: mark the
++		// peer v2, as on_tracker_response() does for peers with an IP address
++		pex_flags_t const flags = m_info_hash.has_v1() ? pex_flags_t{} : pex_lt_v2;
++		if (m_peer_list->add_i2p_peer(dest, peer_info::tracker, flags, &st))
+ 			state_updated();
+ 		peers_erased(st.erased);
+ 
