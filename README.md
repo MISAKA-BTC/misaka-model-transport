@@ -17,6 +17,51 @@ the chain.
   refused.
 - **Every downloader can seed.**
 
+## Get MISAKA Torrent
+
+Download page: **https://misakaoptions.com/#/download**. Every file is listed there with its SHA-256.
+
+| system | file |
+| --- | --- |
+| macOS (Apple silicon) | [`MISAKA-Model-Transport_0.1.0_macos-arm64.dmg`](https://misakaoptions.com/downloads/misaka-torrent/0.1.0/MISAKA-Model-Transport_0.1.0_macos-arm64.dmg) |
+| Linux (Debian / Ubuntu, x86_64) | [`misaka-model-transport_0.1.0_amd64.deb`](https://misakaoptions.com/downloads/misaka-torrent/0.1.0/misaka-model-transport_0.1.0_amd64.deb) |
+| Linux (any, x86_64) | [`MISAKA-Model-Transport_0.1.0_amd64.AppImage`](https://misakaoptions.com/downloads/misaka-torrent/0.1.0/MISAKA-Model-Transport_0.1.0_amd64.AppImage) |
+| CLI and daemon only (servers) | [`linux-x86_64`](https://misakaoptions.com/downloads/misaka-torrent/0.1.0/misaka-torrent-cli-0.1.0-linux-x86_64.tar.gz) · [`macos-arm64`](https://misakaoptions.com/downloads/misaka-torrent/0.1.0/misaka-torrent-cli-0.1.0-macos-arm64.tar.gz) |
+
+Checksums: [`SHA256SUMS`](https://misakaoptions.com/downloads/misaka-torrent/0.1.0/SHA256SUMS). Check
+a file with `shasum -a 256 <file>` (macOS) or `sha256sum <file>` (Linux).
+
+- **Not code-signed yet.** On first launch, macOS refuses the app. Open **System Settings → Privacy &
+  Security → Open Anyway**.
+- **Linux requirements.** The Linux builds need glibc 2.39 or later (Ubuntu 24.04, Debian 13).
+- **Windows.** Not supported yet.
+
+### Use it
+
+1. **Install and open the app.** It stays in the menu bar or tray and starts at login, so what you hold
+   keeps seeding.
+2. **Pick a model.** Open a model on [misakaoptions.com](https://misakaoptions.com/#/models) and choose
+   **Download → Download with MISAKA**.
+3. **Confirm.** The app shows the size and where it will save, and waits for you to confirm.
+4. **Download, check and seed.** It fetches the model from everyone who has it, checks every 16 KiB
+   block and the whole bundle against its commitment, then shares it with the next person.
+
+Without the app, any BitTorrent v2 client (qBittorrent 4.4 or later, Deluge 2.1, …) can use a model's
+`.torrent` or magnet from the same page. The client checks every block against the infohash, but not
+the bundle commitment or the file allowlist.
+
+### On a server (CLI)
+
+```bash
+tar xzf misaka-torrent-cli-0.1.0-linux-x86_64.tar.gz && cd misaka-torrent-cli-0.1.0-linux-x86_64
+./misaka-torrentd run --profile desktop &          # the daemon; --profile server never seeds unless enabled
+./misaka-torrent pull '<magnet>' --expect <bundle_commitment> --kind palw-artifact
+./misaka-torrent status
+```
+
+Each model page's Download menu gives the exact `pull` command. To build from source, see
+[Build and test](#build-and-test).
+
 ## Status
 
 This repository's part of the design, phases A1–A5 of the RFC, is implemented; the RFC itself is still
