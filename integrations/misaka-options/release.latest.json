@@ -1,0 +1,66 @@
+{
+  "schema": "misaka/app-release/v1",
+  "product": "MISAKA Model Transport",
+  "version": "0.1.0",
+  "date": "2026-10-03",
+  "sums": "downloads/misaka-torrent/0.1.0/SHA256SUMS",
+  "assets": [
+    {
+      "os": "linux",
+      "arch": "x86_64",
+      "kind": "app",
+      "label": "Linux \u00b7 AppImage (x86_64)",
+      "requires": "glibc 2.39 or later, x86_64",
+      "name": "MISAKA-Model-Transport_0.1.0_amd64.AppImage",
+      "size": 86981112,
+      "sha256": "9f5a21887476ec627887a3f3a7ac054046297e1c132cf8711c94740ed2510a35",
+      "url": "downloads/misaka-torrent/0.1.0/MISAKA-Model-Transport_0.1.0_amd64.AppImage"
+    },
+    {
+      "os": "linux",
+      "arch": "x86_64",
+      "kind": "app",
+      "label": "Linux \u00b7 .deb (x86_64)",
+      "requires": "Ubuntu 24.04 / Debian 13 or later, x86_64",
+      "primary": true,
+      "name": "misaka-model-transport_0.1.0_amd64.deb",
+      "size": 8454750,
+      "sha256": "a1216cd580a402b6501918a8b83ace6b8f3baaf6f9634cc9f8da799274544cf2",
+      "url": "downloads/misaka-torrent/0.1.0/misaka-model-transport_0.1.0_amd64.deb"
+    },
+    {
+      "os": "macos",
+      "arch": "arm64",
+      "kind": "app",
+      "label": "macOS \u00b7 Apple silicon",
+      "requires": "macOS 12 or later, Apple silicon",
+      "primary": true,
+      "name": "MISAKA-Model-Transport_0.1.0_macos-arm64.dmg",
+      "size": 8759295,
+      "sha256": "cd451b20be9fef681bfff042ec0d735e02f37d7319145353d506d305bfb6d300",
+      "url": "downloads/misaka-torrent/0.1.0/MISAKA-Model-Transport_0.1.0_macos-arm64.dmg"
+    },
+    {
+      "os": "linux",
+      "arch": "x86_64",
+      "kind": "cli",
+      "label": "CLI \u00b7 Linux x86_64",
+      "requires": "glibc 2.39 or later",
+      "name": "misaka-torrent-cli-0.1.0-linux-x86_64.tar.gz",
+      "size": 4603319,
+      "sha256": "b635e3134991c2232bf231c010133ac8c9f31bc42879118352a07087a53bac06",
+      "url": "downloads/misaka-torrent/0.1.0/misaka-torrent-cli-0.1.0-linux-x86_64.tar.gz"
+    },
+    {
+      "os": "macos",
+      "arch": "arm64",
+      "kind": "cli",
+      "label": "CLI \u00b7 macOS Apple silicon",
+      "requires": "macOS 12 or later",
+      "name": "misaka-torrent-cli-0.1.0-macos-arm64.tar.gz",
+      "size": 5906973,
+      "sha256": "373c5143cc52ab14e1ed88215cf757a2be28dc72efc02920185469254bed05bb",
+      "url": "downloads/misaka-torrent/0.1.0/misaka-torrent-cli-0.1.0-macos-arm64.tar.gz"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[package]
+name = "misaka-i2p-tracker"
+description = "A small HTTP tracker for I2P swarms, served as an I2P server tunnel (RFC-0002 §4.1)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+clap.workspace = true
+sha2.workspace = true

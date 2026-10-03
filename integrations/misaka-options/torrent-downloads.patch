@@ -1,0 +1,692 @@
+--- a/web/misaka-options/app.js
++++ b/web/misaka-options/app.js
+@@ -1768,7 +1768,7 @@
+ function parseHash() {
+   const raw = location.hash.replace(/^#\/?/, '');
+   const [name, ...rest] = raw.split('/');
+-  return { name: name || 'store', arg: rest.join('/') || '' };
++  return { name: name || 'models', arg: rest.join('/') || '' };
+ }
+ function navigate(hash) { location.hash = hash; }
+ 
+@@ -2033,7 +2033,7 @@
+     this.layout = { X, Y, x0, x1, y0, y1, pts, prices, tMin, tMax };
+     // grid + axes (recessive)
+     const css = getComputedStyle(document.documentElement), cv = (k, d) => (css.getPropertyValue(k) || '').trim() || d;
+-    const C_LINE = cv('--accent', '#6D5DFB'), C_INK = cv('--accent-ink', '#FFFFFF'), C_DIM = cv('--dim', '#7C8798'), C_TEXT = cv('--text', '#F5F7FA');
++    const C_LINE = cv('--accent', '#1f6feb'), C_INK = cv('--accent-ink', '#FFFFFF'), C_DIM = cv('--dim', '#7C8798'), C_TEXT = cv('--text', '#F5F7FA');
+     ctx.font = '11px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+     ctx.fillStyle = C_DIM; ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+     const dp = pMax - pMin < 0.001 ? 8 : pMax - pMin < 0.1 ? 6 : 4;
+@@ -2051,7 +2051,7 @@
+       ctx.fillText(span > 2 * 86400000 ? fmtDateTime(t).slice(5, 16) : fmtTime(t).slice(0, 5), x, H - 8);
+     }
+     // area + line (2px, the accent)
+-    const grad = ctx.createLinearGradient(0, y0, 0, y1); grad.addColorStop(0, 'rgba(109,93,251,0.28)'); grad.addColorStop(1, 'rgba(109,93,251,0.0)');
++    const grad = ctx.createLinearGradient(0, y0, 0, y1); grad.addColorStop(0, 'rgba(56,139,253,0.25)'); grad.addColorStop(1, 'rgba(56,139,253,0.0)');
+     ctx.beginPath();
+     pts.forEach((p, i) => { const x = X(p.t), y = Y(prices[i]); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+     const lastX = X(pts[pts.length - 1].t);
+@@ -2421,7 +2421,7 @@
+   const orderCtx = { changing: null, rerender: () => { if (view.bottomTab === 'orders') renderBottom(); renderOrderCount(); } };
+ 
+   main.innerHTML = h`
+-  <nav class="crumbs" aria-label="Breadcrumb"><a href="#/store">← All models</a><span aria-hidden="true">/</span><span id="crumbName">${db.label(rec)}</span></nav>
++  <nav class="crumbs" aria-label="Breadcrumb"><a href="#/store">← All models</a><span aria-hidden="true">/</span><span id="crumbName">${db.label(rec)}</span><button class="btn btn-sm btn-accent" id="dlJump" type="button" hidden style="margin-left:auto">⇩ Download model (.torrent / magnet)</button></nav>
+   <section class="product" aria-label="Member access">
+     <div class="p-top"><header class="p-head" id="pHead"></header><section class="panel p-mine" id="yourAccess" aria-label="Your access" hidden></section></div>
+     <section class="panel p-get" id="youGet" aria-label="What you get"></section>
+@@ -2432,6 +2432,7 @@
+       <div class="panel entry" id="entry"></div>
+     </aside>
+   </section>
++  <div id="torrentBox"></div>
+   <section class="panel section mine" aria-label="Your orders and memberships">
+     <div class="tabs" id="bottomTabs"><button data-t="orders" id="ordersTab">Open orders</button><button data-t="positions" title="The memberships this account holds (positions)">My access</button><button data-t="history">My activity</button><button data-t="settlements" title="Bought and Sold events the facades emitted for this account">Settled purchases and leaves</button></div>
+     <div class="tab-body" id="bottomBody"></div>
+@@ -2448,6 +2449,12 @@
+     <details class="panel a-depth disclosure"><summary>Price list &amp; recent transactions</summary><div class="depth" id="depth"></div></details>
+     <div class="panel"><div class="panel-h">Contract &amp; chain data</div><div class="panel-b" id="modelInfo"></div></div>
+   </section>`.s;
++  loadTorrents().then(() => {
++    if (!alive() || !$('#torrentBox')) return;
++    if (!torrentsFor(lineId).length) return;
++    $('#torrentBox').innerHTML = torrentPanel(lineId).s;
++    const jump = $('#dlJump'); if (jump) { jump.hidden = false; jump.addEventListener('click', () => $('#torrentBox').scrollIntoView({ behavior: 'smooth', block: 'start' })); }
++  });
+ 
+   const chart = new PriceChart($('#chartBox'));
+   onCleanup(() => chart.destroy());
+@@ -3137,11 +3144,76 @@
+   db.emit();
+ }
+ function usageOf(r) { return r.usage ? r.usage.attempt + r.usage.fp : null; }
++// ---- MISAKA Torrent downloads (misaka-model-transport RFC-0001) ------------------------------
++// torrents/index.json, served beside this page, is the site's release-scoped pointer to each
++// model's bundle (RFC-0001 §3.5, §8.4). It is the release's word, not a chain fact: the chain's own
++// declaration (Part B, ModelDistributionDeclared) is not armed yet. Every byte is still checked by
++// the client — BitTorrent v2 per 16 KiB block, the descriptor commitment (L2), and the node's digest
++// check when it loads the container — so a wrong index costs a download, never a wrong model.
++const torrents = { byLine: new Map(), loaded: false, loading: null, error: null, network: null };
++function loadTorrents() {
++  if (torrents.loaded) return Promise.resolve(torrents);
++  if (torrents.loading) return torrents.loading;
++  torrents.loading = (async () => {
++    try {
++      const r = await fetch('torrents/index.json', { cache: 'no-cache' });
++      if (!r.ok) throw new Error('HTTP ' + r.status);
++      const j = await r.json();
++      if (j.schema !== 'misaka/torrent-index/v1' || !Array.isArray(j.bundles)) throw new Error('unknown index schema');
++      torrents.network = j.network || null;
++      for (const b of j.bundles) {
++        const line = normId(b.line_id);
++        if (!line || !/^[0-9a-f]{64}$/.test(b.btv2_infohash) || !/^[0-9a-f]{128}$/.test(b.bundle_commitment) || !/^torrents\/[A-Za-z0-9._-]+\.torrent$/.test(b.torrent || '')) continue;
++        if (!torrents.byLine.has(line)) torrents.byLine.set(line, []);
++        torrents.byLine.get(line).push(b);
++      }
++    } catch (e) { torrents.error = e.message; }
++    torrents.loaded = true;
++    return torrents;
++  })();
++  return torrents.loading;
++}
++function torrentsFor(lineId) { return torrents.byLine.get(lineId) || []; }
++function torrentMagnet(b) { return 'magnet:?xt=urn:btmh:1220' + b.btv2_infohash + '&dn=' + encodeURIComponent(b.title); }
++function fmtBytesIec(n) {
++  const u = ['B', 'KiB', 'MiB', 'GiB', 'TiB']; let v = Number(n), i = 0;
++  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
++  return (i ? v.toFixed(2) : String(v)) + ' ' + u[i];
++}
++function torrentPullCmd(b) { return "misaka-torrent pull '" + torrentMagnet(b) + "' --expect " + b.bundle_commitment + ' --kind ' + b.kind; }
++// The Download cell of the models table.
++function downloadCell(r) {
++  const list = torrentsFor(r.lineId);
++  if (!list.length) return h`<span class="dim" title="${torrents.loaded ? 'No bundle is listed for this model yet' : 'Loading the torrent index…'}">—</span>`;
++  return raw(list.map((b) => h`<span class="dl-cell"><a class="btn btn-sm" href="${b.torrent}" download title="${b.kind} · ${fmtBytesIec(b.total_bytes)} · BitTorrent v2">⇩ .torrent</a> <a class="btn btn-sm" href="${torrentMagnet(b)}" title="Open in a BitTorrent v2 client (misaka-torrent, qBittorrent ≥ 4.4)">magnet</a></span>`.s).join('<br>'));
++}
++// The Download panel of a model's page.
++function torrentPanel(lineId) {
++  const list = torrentsFor(lineId);
++  if (!torrents.loaded) return h`<div class="panel section"><div class="panel-h">Download (MISAKA Torrent)</div><div class="panel-b"><div class="empty">Loading the torrent index…</div></div></div>`;
++  if (!list.length) return h`<div class="panel section"><div class="panel-h">Download (MISAKA Torrent)</div><div class="panel-b"><div class="empty">No bundle of this model is listed for download yet${torrents.error ? ' (the index could not be read: ' + torrents.error + ')' : ''}.</div></div></div>`;
++  return h`<div class="panel section" id="download"><div class="panel-h">Download with MISAKA Torrent <span class="spacer"></span><span class="tag declared" title="Listed by this site's release index, torrents/index.json. The chain's own declaration (ModelDistributionDeclared) is not armed yet; nothing here is a chain fact.">declared by the site's release</span></div><div class="panel-b">
++    ${list.map((b) => h`<div class="grid2" style="padding:4px 0 8px"><dl class="kv">
++        <dt>Bundle</dt><dd><b>${b.title}</b> · ${b.kind}</dd>
++        <dt>Size</dt><dd>${fmtBytesIec(b.total_bytes)} (${fmtInt(b.total_bytes)} bytes) · ${b.files.length + 1} files (misaka-bundle.json included) · pieces of ${b.piece_length}</dd>
++        <dt>License</dt><dd>${b.license || '—'}</dd>
++        <dt>Infohash (v2)</dt><dd>${idCell(b.btv2_infohash, 24)}</dd>
++        <dt>Bundle commitment</dt><dd>${idCell(b.bundle_commitment, 24)}</dd>
++        ${b.palw && b.palw.roots ? raw(b.palw.roots.map((rt) => h`<dt>Inventory root</dt><dd>${idCell(rt.inventory_root, 24)} <span class="dim tiny">at class ${shortId(rt.class_id, 10)} · ${b.palw.magic}</span></dd>`.s).join('')) : ''}
++        <dt>Files</dt><dd>${raw(b.files.map((f) => h`<div class="tiny"><span class="mono">${f.path}</span> <span class="dim">${fmtBytesIec(f.size)} · ${f.role}</span></div>`.s).join(''))}</dd>
++      </dl><div>
++        <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px"><a class="btn btn-accent" href="${b.torrent}" download>⇩ Download .torrent</a><a class="btn" href="${torrentMagnet(b)}">Open magnet link</a><button class="btn" data-copy="${torrentMagnet(b)}">Copy magnet</button></div>
++        <div class="cmdbox"><div class="cmdbar"><span class="dim tiny">MISAKA Torrent: fetch, check the commitment (L2), seal</span><button class="btn btn-sm" data-copy="${torrentPullCmd(b)}">Copy</button></div><pre class="cmd">${torrentPullCmd(b)}</pre></div>
++        <div class="note tiny">Any BitTorrent v2 client fetches it from the magnet or the .torrent, and every 16 KiB block is checked against the infohash. Only <span class="mono">misaka-torrent</span> also checks the bundle commitment, and refuses pickle, code and archives before a byte is written. ${b.kind === 'palw-artifact' ? 'The node digest-checks the container when it loads it; misaka model verify recomputes its inventory root against the chain.' : ''} Peers see each other's addresses; seeding back is welcome.</div>
++      </div></div>`)}
++  </div></div>`;
++}
++
+ function lineRowsHtml(list, opts) {
+   opts = opts || {};
+   return h`<div class="tbl-wrap"><table class="tbl" id="linesTbl"><thead><tr>
+     ${opts.rank ? raw('<th>#</th>') : ''}
+-    <th class="l">Model</th><th class="l" title="What the line's owner has declared for its members (ADR-0095)">Members get</th><th class="l">Class</th><th class="sortable ${opts.sort === 'usage' ? 'sorted' : ''}" data-sort="usage" title="Paid inferences the fold counted on the current version: the one measurement the chain makes">Used</th><th class="sortable ${opts.sort === 'price' ? 'sorted' : ''}" data-sort="price">Membership (MSK)</th><th>24 h</th><th class="sortable ${opts.sort === 'sold' ? 'sorted' : ''}" data-sort="sold">Members hold</th><th class="sortable ${opts.sort === 'buyback' ? 'sorted' : ''}" data-sort="buyback" title="MSK the mining reward has bought back and retired (ADR-0091)">Mining bought</th><th class="sortable ${opts.sort === 'reserve' ? 'sorted' : ''}" data-sort="reserve" title="MSK the curve holds to buy memberships back">Buy-back (MSK)</th><th class="sortable ${opts.sort === 'seed' ? 'sorted' : ''}" data-sort="seed" title="The MSK the store opened with, locked for good">Opening (locked)</th><th class="l">Owner</th><th>Versions</th><th class="l">Status</th>
++    <th class="l">Model</th><th class="l" title="What the line's owner has declared for its members (ADR-0095)">Members get</th><th class="l">Class</th><th class="sortable ${opts.sort === 'usage' ? 'sorted' : ''}" data-sort="usage" title="Paid inferences the fold counted on the current version: the one measurement the chain makes">Used</th><th class="sortable ${opts.sort === 'price' ? 'sorted' : ''}" data-sort="price">Membership (MSK)</th><th>24 h</th><th class="sortable ${opts.sort === 'sold' ? 'sorted' : ''}" data-sort="sold">Members hold</th><th class="sortable ${opts.sort === 'buyback' ? 'sorted' : ''}" data-sort="buyback" title="MSK the mining reward has bought back and retired (ADR-0091)">Mining bought</th><th class="sortable ${opts.sort === 'reserve' ? 'sorted' : ''}" data-sort="reserve" title="MSK the curve holds to buy memberships back">Buy-back (MSK)</th><th class="sortable ${opts.sort === 'seed' ? 'sorted' : ''}" data-sort="seed" title="The MSK the store opened with, locked for good">Opening (locked)</th><th class="l">Owner</th><th>Versions</th><th class="l">Status</th><th class="l" title="The model's bundle over BitTorrent v2 (MISAKA Torrent), as this site's release index lists it">Download</th>
+   </tr></thead><tbody>
+     ${list.length ? list.map((r, i) => { const m = r.market, row = r.row, o = ownerLabel(row), u = usageOf(r); const held = membersHold(m); const seeded = !!(m && m.seeded); return h`<tr class="row-link" data-href="#/store/${r.lineId}">
+       ${opts.rank ? h`<td class="rank">${i + 1}</td>` : ''}
+@@ -3158,7 +3230,8 @@
+       <td class="l" title="${o ? o.title : ''}">${o ? o.text : '—'}</td>
+       <td class="num">${row && row.versionsPublished != null ? row.versionsPublished + ' (v' + row.current + ')' : '—'}</td>
+       <td class="l">${statusTag(r)} <a class="tiny" href="#/line/${r.lineId}">details</a></td>
+-    </tr>`; }) : raw('<tr><td colspan="14" class="empty">No models known yet. ' + (db.classes.size ? 'Waiting for a node to answer.' : 'Configure CLASS_IDS in config.js, or reach an EVM RPC whose registry window is armed.') + '</td></tr>')}
++      <td class="l">${downloadCell(r)}</td>
++    </tr>`; }) : raw('<tr><td colspan="15" class="empty">No models known yet. ' + (db.classes.size ? 'Waiting for a node to answer.' : 'Configure CLASS_IDS in config.js, or reach an EVM RPC whose registry window is armed.') + '</td></tr>')}
+   </tbody></table></div>`.s;
+ }
+ // The "Members get" cell: the first tier's benefits in words, or plainly that there are none.
+@@ -3204,6 +3277,7 @@
+   }
+   $('#q').addEventListener('input', (e) => { view.q = e.target.value; render(); });
+   render();
++  loadTorrents().then(render);
+   const onDb = () => render(); db.listeners.add(onDb); onCleanup(() => db.listeners.delete(onDb));
+   await loadAllLines(true); render();
+   every(30000, () => loadAllLines(true));
+@@ -3224,6 +3298,7 @@
+   }
+   $('#lbSort').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { view.sort = b.dataset.s; store.set('lb:sort', view.sort); render(); } });
+   render();
++  loadTorrents().then(render);
+   const onDb = () => render(); db.listeners.add(onDb); onCleanup(() => db.listeners.delete(onDb));
+   await loadAllLines(true); render();
+   every(30000, () => loadAllLines(true));
+@@ -3276,6 +3351,7 @@
+         <div style="padding:6px 0">${inForce ? (inForce.length ? raw(inForce.map((r) => '<div class="hash">' + (r ? idCell(r, 32).s : '(id not served by the EVM window)') + '</div>').join('')) : '<span class="dim">none</span>') : '—'}</div>
+         </div></div>
+       </div>
++      ${torrentPanel(lineId)}
+       <div class="section">${raw(benefitsPanel(info, { always: true }))}</div>
+       <div class="panel section"><div class="panel-h">Versions <span class="spacer"></span><span class="dim">the node holds the last 64; the explorer keeps the whole history</span></div><div class="panel-b" id="versionsBox">
+         ${!versions ? raw('<div class="empty">Loading versions…</div>') : !versions.length ? raw('<div class="empty">No version rows are held for this line' + (row.hasRow === false ? ' (a founding line nothing touched has its registration root as version 1)' : '') + '.</div>') :
+@@ -3301,6 +3377,7 @@
+           h`<div class="tbl-wrap"><table class="tbl"><thead><tr><th class="l">Proposal</th><th class="l">Root</th><th class="l">Note (declared)</th><th class="l">By</th><th>Posted DAA</th><th>Adopted in</th></tr></thead><tbody>${rec.proposals.map((p) => h`<tr><td class="l">${idCell(p.proposalId, 12)}</td><td class="l">${idCell(p.root, 12)}</td><td class="l">${idCell(p.noteHash, 12)}</td><td class="l">${p.by ? raw(idCell(p.by.transactionId, 10).s + ':' + esc(String(p.by.index))) : '—'}</td><td class="num">${fmtInt(p.postedDaa)}</td><td class="num">${p.adoptedIn ? 'v' + p.adoptedIn : '—'}</td></tr>`)}</tbody></table></div>`}
+       </div></div>`.s;
+   }
++  loadTorrents().then(render);
+   await Promise.all([refreshLineInfo(lineId), refreshMarket(lineId), refreshFacade(lineId)]);
+   render();
+   await Promise.all([refreshUsage(lineId), refreshVersions(lineId), refreshProposals(lineId)]);
+@@ -4071,7 +4148,463 @@
+ // ============================================================================================
+ // 12. router, boot, self-test
+ // ============================================================================================
+-const PAGES = { store: pageStore, portfolio: pagePortfolio, lines: pageLines, line: pageLine, leaderboard: pageLeaderboard, add: pageAdd, docs: pageDocs, dev: pageDev };
++// ============================================================================================
++// Model hub: #/models and #/models/<owner>/<name> (misaka-model-transport, 2026-10-03)
++// ============================================================================================
++// A repository-style model hub built on Primer CSS 21.5.1 and Octicons (MIT, vendored and scoped
++// to .hub in primer-hub.css), in Primer's dark theme. Every line the node reports is a model; the
++// release index (torrents/index.json) adds its bundle. The page finds and describes a model; the
++// bytes come from the BitTorrent v2 swarm, never from this site. The index and its model card are
++// the release's word, not chain facts.
++const OCTICONS = {"repo":"<path d=\"M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z\"></path>","book":"<path d=\"M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z\"></path>","file":"<path d=\"M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z\"></path>","file-binary":"<path d=\"M4 1.75C4 .784 4.784 0 5.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v8.586A1.75 1.75 0 0 1 14.25 15h-9a.75.75 0 0 1 0-1.5h9a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 10 4.25V1.5H5.75a.25.25 0 0 0-.25.25v2a.75.75 0 0 1-1.5 0Zm-4 6C0 6.784.784 6 1.75 6h1.5C4.216 6 5 6.784 5 7.75v2.5A1.75 1.75 0 0 1 3.25 12h-1.5A1.75 1.75 0 0 1 0 10.25ZM6.75 6h1.5a.75.75 0 0 1 .75.75v3.75h.75a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1 0-1.5h.75v-3h-.75a.75.75 0 0 1 0-1.5Zm-5 1.5a.25.25 0 0 0-.25.25v2.5c0 .138.112.25.25.25h1.5a.25.25 0 0 0 .25-.25v-2.5a.25.25 0 0 0-.25-.25Zm9.75-5.938V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z\"></path>","file-code":"<path d=\"M4 1.75C4 .784 4.784 0 5.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v8.586A1.75 1.75 0 0 1 14.25 15h-9a.75.75 0 0 1 0-1.5h9a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 10 4.25V1.5H5.75a.25.25 0 0 0-.25.25v2.5a.75.75 0 0 1-1.5 0Zm1.72 4.97a.75.75 0 0 1 1.06 0l2 2a.75.75 0 0 1 0 1.06l-2 2a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l1.47-1.47-1.47-1.47a.75.75 0 0 1 0-1.06ZM3.28 7.78 1.81 9.25l1.47 1.47a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-2-2a.75.75 0 0 1 0-1.06l2-2a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Zm8.22-6.218V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z\"></path>","git-branch":"<path d=\"M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z\"></path>","tag":"<path d=\"M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z\"></path>","download":"<path d=\"M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z\"></path><path d=\"M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z\"></path>","copy":"<path d=\"M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z\"></path><path d=\"M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z\"></path>","law":"<path d=\"M8.75.75V2h.985c.304 0 .603.08.867.231l1.29.736c.038.022.08.033.124.033h2.234a.75.75 0 0 1 0 1.5h-.427l2.111 4.692a.75.75 0 0 1-.154.838l-.53-.53.529.531-.001.002-.002.002-.006.006-.006.005-.01.01-.045.04c-.21.176-.441.327-.686.45C14.556 10.78 13.88 11 13 11a4.498 4.498 0 0 1-2.023-.454 3.544 3.544 0 0 1-.686-.45l-.045-.04-.016-.015-.006-.006-.004-.004v-.001a.75.75 0 0 1-.154-.838L12.178 4.5h-.162c-.305 0-.604-.079-.868-.231l-1.29-.736a.245.245 0 0 0-.124-.033H8.75V13h2.5a.75.75 0 0 1 0 1.5h-6.5a.75.75 0 0 1 0-1.5h2.5V3.5h-.984a.245.245 0 0 0-.124.033l-1.289.737c-.265.15-.564.23-.869.23h-.162l2.112 4.692a.75.75 0 0 1-.154.838l-.53-.53.529.531-.001.002-.002.002-.006.006-.016.015-.045.04c-.21.176-.441.327-.686.45C4.556 10.78 3.88 11 3 11a4.498 4.498 0 0 1-2.023-.454 3.544 3.544 0 0 1-.686-.45l-.045-.04-.016-.015-.006-.006-.004-.004v-.001a.75.75 0 0 1-.154-.838L2.178 4.5H1.75a.75.75 0 0 1 0-1.5h2.234a.249.249 0 0 0 .125-.033l1.288-.737c.265-.15.564-.23.869-.23h.984V.75a.75.75 0 0 1 1.5 0Zm2.945 8.477c.285.135.718.273 1.305.273s1.02-.138 1.305-.273L13 6.327Zm-10 0c.285.135.718.273 1.305.273s1.02-.138 1.305-.273L3 6.327Z\"></path>","pulse":"<path d=\"M6 2c.306 0 .582.187.696.471L10 10.731l1.304-3.26A.751.751 0 0 1 12 7h3.25a.75.75 0 0 1 0 1.5h-2.742l-1.812 4.528a.751.751 0 0 1-1.392 0L6 4.77 4.696 8.03A.75.75 0 0 1 4 8.5H.75a.75.75 0 0 1 0-1.5h2.742l1.812-4.529A.751.751 0 0 1 6 2Z\"></path>","people":"<path d=\"M2 5.5a3.5 3.5 0 1 1 5.898 2.549 5.508 5.508 0 0 1 3.034 4.084.75.75 0 1 1-1.482.235 4 4 0 0 0-7.9 0 .75.75 0 0 1-1.482-.236A5.507 5.507 0 0 1 3.102 8.05 3.493 3.493 0 0 1 2 5.5ZM11 4a3.001 3.001 0 0 1 2.22 5.018 5.01 5.01 0 0 1 2.56 3.012.749.749 0 0 1-.885.954.752.752 0 0 1-.549-.514 3.507 3.507 0 0 0-2.522-2.372.75.75 0 0 1-.574-.73v-.352a.75.75 0 0 1 .416-.672A1.5 1.5 0 0 0 11 5.5.75.75 0 0 1 11 4Zm-5.5-.5a2 2 0 1 0-.001 3.999A2 2 0 0 0 5.5 3.5Z\"></path>","link-external":"<path d=\"M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z\"></path>","search":"<path d=\"M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z\"></path>","broadcast":"<path d=\"M8.75 8.582v5.668a.75.75 0 0 1-1.5 0V8.582a1.75 1.75 0 1 1 1.5 0Zm3.983-7.125a.75.75 0 0 1 1.06.026A7.976 7.976 0 0 1 16 7c0 2.139-.84 4.083-2.207 5.517a.75.75 0 1 1-1.086-1.034A6.474 6.474 0 0 0 14.5 7a6.474 6.474 0 0 0-1.793-4.483.75.75 0 0 1 .026-1.06Zm-9.466 0c.3.286.312.76.026 1.06A6.474 6.474 0 0 0 1.5 7a6.47 6.47 0 0 0 1.793 4.483.75.75 0 0 1-1.086 1.034A7.973 7.973 0 0 1 0 7c0-2.139.84-4.083 2.207-5.517a.75.75 0 0 1 1.06-.026Zm8.556 2.321A4.988 4.988 0 0 1 13 7a4.988 4.988 0 0 1-1.177 3.222.75.75 0 1 1-1.146-.967A3.487 3.487 0 0 0 11.5 7c0-.86-.309-1.645-.823-2.255a.75.75 0 0 1 1.146-.967Zm-6.492.958A3.48 3.48 0 0 0 4.5 7a3.48 3.48 0 0 0 .823 2.255.75.75 0 0 1-1.146.967A4.981 4.981 0 0 1 3 7a4.982 4.982 0 0 1 1.188-3.236.75.75 0 1 1 1.143.972Z\"></path>","package":"<path d=\"m8.878.392 5.25 3.045c.54.314.872.89.872 1.514v6.098a1.75 1.75 0 0 1-.872 1.514l-5.25 3.045a1.75 1.75 0 0 1-1.756 0l-5.25-3.045A1.75 1.75 0 0 1 1 11.049V4.951c0-.624.332-1.201.872-1.514L7.122.392a1.75 1.75 0 0 1 1.756 0ZM7.875 1.69l-4.63 2.685L8 7.133l4.755-2.758-4.63-2.685a.248.248 0 0 0-.25 0ZM2.5 5.677v5.372c0 .09.047.171.125.216l4.625 2.683V8.432Zm6.25 8.271 4.625-2.683a.25.25 0 0 0 .125-.216V5.677L8.75 8.432Z\"></path>","unlock":"<path d=\"M5.5 4v2h7A1.5 1.5 0 0 1 14 7.5v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-6A1.5 1.5 0 0 1 3.499 6H4V4a4 4 0 0 1 7.371-2.154.75.75 0 0 1-1.264.808A2.5 2.5 0 0 0 5.5 4Zm-2 3.5v6h9v-6h-9Z\"></path>","comment-discussion":"<path d=\"M1.75 1h8.5c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 10.25 10H7.061l-2.574 2.573A1.458 1.458 0 0 1 2 11.543V10h-.25A1.75 1.75 0 0 1 0 8.25v-5.5C0 1.784.784 1 1.75 1ZM1.5 2.75v5.5c0 .138.112.25.25.25h1a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h3.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25Zm13 2a.25.25 0 0 0-.25-.25h-.5a.75.75 0 0 1 0-1.5h.5c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 14.25 12H14v1.543a1.458 1.458 0 0 1-2.487 1.03L9.22 12.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l2.22 2.22v-2.19a.75.75 0 0 1 .75-.75h1a.25.25 0 0 0 .25-.25Z\"></path>","triangle-down":"<path d=\"m4.427 7.427 3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z\"></path>","check":"<path d=\"M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z\"></path>","versions":"<path d=\"M7.75 14A1.75 1.75 0 0 1 6 12.25v-8.5C6 2.784 6.784 2 7.75 2h6.5c.966 0 1.75.784 1.75 1.75v8.5A1.75 1.75 0 0 1 14.25 14Zm-.25-1.75c0 .138.112.25.25.25h6.5a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25h-6.5a.25.25 0 0 0-.25.25ZM4.9 3.508a.75.75 0 0 1-.274 1.025.249.249 0 0 0-.126.217v6.5c0 .09.048.173.126.217a.75.75 0 0 1-.752 1.298A1.75 1.75 0 0 1 3 11.25v-6.5c0-.649.353-1.214.874-1.516a.75.75 0 0 1 1.025.274ZM1.625 5.533h.001a.249.249 0 0 0-.126.217v4.5c0 .09.048.173.126.217a.75.75 0 0 1-.752 1.298A1.748 1.748 0 0 1 0 10.25v-4.5a1.748 1.748 0 0 1 .873-1.516.75.75 0 1 1 .752 1.299Z\"></path>","shield-check":"<path d=\"m8.533.133 5.25 1.68A1.75 1.75 0 0 1 15 3.48V7c0 1.566-.32 3.182-1.303 4.682-.983 1.498-2.585 2.813-5.032 3.855a1.697 1.697 0 0 1-1.33 0c-2.447-1.042-4.049-2.357-5.032-3.855C1.32 10.182 1 8.566 1 7V3.48a1.75 1.75 0 0 1 1.217-1.667l5.25-1.68a1.748 1.748 0 0 1 1.066 0Zm-.61 1.429.001.001-5.25 1.68a.251.251 0 0 0-.174.237V7c0 1.36.275 2.666 1.057 3.859.784 1.194 2.121 2.342 4.366 3.298a.196.196 0 0 0 .154 0c2.245-.957 3.582-2.103 4.366-3.297C13.225 9.666 13.5 8.358 13.5 7V3.48a.25.25 0 0 0-.174-.238l-5.25-1.68a.25.25 0 0 0-.153 0ZM11.28 6.28l-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l.97.97 2.97-2.97a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z\"></path>","cpu":"<path d=\"M6.5.75V2h3V.75a.75.75 0 0 1 1.5 0V2h1.25c.966 0 1.75.784 1.75 1.75V5h1.25a.75.75 0 0 1 0 1.5H14v3h1.25a.75.75 0 0 1 0 1.5H14v1.25A1.75 1.75 0 0 1 12.25 14H11v1.25a.75.75 0 0 1-1.5 0V14h-3v1.25a.75.75 0 0 1-1.5 0V14H3.75A1.75 1.75 0 0 1 2 12.25V11H.75a.75.75 0 0 1 0-1.5H2v-3H.75a.75.75 0 0 1 0-1.5H2V3.75C2 2.784 2.784 2 3.75 2H5V.75a.75.75 0 0 1 1.5 0Zm5.75 11.75a.25.25 0 0 0 .25-.25v-8.5a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25ZM5.75 5h4.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-4.5A.75.75 0 0 1 5.75 5Zm.75 4.5h3v-3h-3Z\"></path>","server":"<path d=\"M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v4c0 .372-.116.717-.314 1 .198.283.314.628.314 1v4a1.75 1.75 0 0 1-1.75 1.75H1.75A1.75 1.75 0 0 1 0 12.75v-4c0-.358.109-.707.314-1a1.739 1.739 0 0 1-.314-1v-4C0 1.784.784 1 1.75 1ZM1.5 2.75v4c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-4a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25Zm.25 5.75a.25.25 0 0 0-.25.25v4c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-4a.25.25 0 0 0-.25-.25ZM7 4.75A.75.75 0 0 1 7.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5A.75.75 0 0 1 7 4.75ZM7.75 10h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM3 4.75A.75.75 0 0 1 3.75 4h.5a.75.75 0 0 1 0 1.5h-.5A.75.75 0 0 1 3 4.75ZM3.75 10h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1 0-1.5Z\"></path>","info":"<path d=\"M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z\"></path>","clock":"<path d=\"M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5a.75.75 0 0 1 1.5 0Z\"></path>","terminal":"<path d=\"M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM7.25 8a.749.749 0 0 1-.22.53l-2.25 2.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L5.44 8 3.72 6.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l2.25 2.25c.141.14.22.331.22.53Zm1.5 1.5h3a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1 0-1.5Z\"></path>","link":"<path d=\"m7.775 3.275 1.25-1.25a3.5 3.5 0 1 1 4.95 4.95l-2.5 2.5a3.5 3.5 0 0 1-4.95 0 .751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018 1.998 1.998 0 0 0 2.83 0l2.5-2.5a2.002 2.002 0 0 0-2.83-2.83l-1.25 1.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042Zm-4.69 9.64a1.998 1.998 0 0 0 2.83 0l1.25-1.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042l-1.25 1.25a3.5 3.5 0 1 1-4.95-4.95l2.5-2.5a3.5 3.5 0 0 1 4.95 0 .751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018 1.998 1.998 0 0 0-2.83 0l-2.5 2.5a1.998 1.998 0 0 0 0 2.83Z\"></path>","filter":"<path d=\"M.75 3h14.5a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1 0-1.5ZM3 7.75A.75.75 0 0 1 3.75 7h8.5a.75.75 0 0 1 0 1.5h-8.5A.75.75 0 0 1 3 7.75Zm3 4a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z\"></path>","x":"<path d=\"M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z\"></path>","sort-desc":"<path d=\"M0 4.25a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 4.25Zm0 4a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 8.25Zm0 4a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1-.75-.75ZM13.5 10h2.25a.25.25 0 0 1 .177.427l-3 3a.25.25 0 0 1-.354 0l-3-3A.25.25 0 0 1 9.75 10H12V3.75a.75.75 0 0 1 1.5 0V10Z\"></path>","home":"<path d=\"M6.906.664a1.749 1.749 0 0 1 2.187 0l5.25 4.2c.415.332.657.835.657 1.367v7.019A1.75 1.75 0 0 1 13.25 15h-3.5a.75.75 0 0 1-.75-.75V9H7v5.25a.75.75 0 0 1-.75.75h-3.5A1.75 1.75 0 0 1 1 13.25V6.23c0-.531.242-1.034.657-1.366l5.25-4.2Zm1.25 1.171a.25.25 0 0 0-.312 0l-5.25 4.2a.25.25 0 0 0-.094.196v7.019c0 .138.112.25.25.25H5.5V8.25a.75.75 0 0 1 .75-.75h3.5a.75.75 0 0 1 .75.75v5.25h2.75a.25.25 0 0 0 .25-.25V6.23a.25.25 0 0 0-.094-.195Z\"></path>","database":"<path d=\"M1 3.5c0-.626.292-1.165.7-1.59.406-.422.956-.767 1.579-1.041C4.525.32 6.195 0 8 0c1.805 0 3.475.32 4.722.869.622.274 1.172.62 1.578 1.04.408.426.7.965.7 1.591v9c0 .626-.292 1.165-.7 1.59-.406.422-.956.767-1.579 1.041C11.476 15.68 9.806 16 8 16c-1.805 0-3.475-.32-4.721-.869-.623-.274-1.173-.62-1.579-1.04-.408-.426-.7-.965-.7-1.591Zm1.5 0c0 .133.058.318.282.551.227.237.591.483 1.101.707C4.898 5.205 6.353 5.5 8 5.5c1.646 0 3.101-.295 4.118-.742.508-.224.873-.471 1.1-.708.224-.232.282-.417.282-.55 0-.133-.058-.318-.282-.551-.227-.237-.591-.483-1.101-.707C11.102 1.795 9.647 1.5 8 1.5c-1.646 0-3.101.295-4.118.742-.508.224-.873.471-1.1.708-.224.232-.282.417-.282.55Zm0 4.5c0 .133.058.318.282.551.227.237.591.483 1.101.707C4.898 9.705 6.353 10 8 10c1.646 0 3.101-.295 4.118-.742.508-.224.873-.471 1.1-.708.224-.232.282-.417.282-.55V5.724c-.241.15-.503.286-.778.407C11.475 6.68 9.805 7 8 7c-1.805 0-3.475-.32-4.721-.869a6.15 6.15 0 0 1-.779-.407Zm0 2.225V12.5c0 .133.058.318.282.55.227.237.592.484 1.1.708 1.016.447 2.471.742 4.118.742 1.647 0 3.102-.295 4.117-.742.51-.224.874-.47 1.101-.707.224-.233.282-.418.282-.551v-2.275c-.241.15-.503.285-.778.406-1.247.549-2.917.869-4.722.869-1.805 0-3.475-.32-4.721-.869a6.327 6.327 0 0 1-.779-.406Z\"></path>","checklist":"<path d=\"M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25Zm13.274 9.537v-.001l-4.557 4.45a.75.75 0 0 1-1.055-.008l-1.943-1.95a.75.75 0 0 1 1.062-1.058l1.419 1.425 4.026-3.932a.75.75 0 1 1 1.048 1.074ZM4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75Z\"></path>"};
++function oi(name, cls) { return raw('<svg class="octicon octicon-' + name + (cls ? ' ' + cls : '') + '" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">' + (OCTICONS[name] || '') + '</svg>'); }
++const TASK_WORDS = { 'text-generation': 'Text Generation', 'text-to-image': 'Text-to-Image', 'image-text-to-text': 'Image-Text-to-Text', 'feature-extraction': 'Feature Extraction' };
++const FORMAT_COLORS = { PALW: '#a371f7', GGUF: '#3fb950', Weights: '#58a6ff' };
++const swarmState = { byIh: new Map(), updated: null, loaded: false };
++async function loadSwarm() {
++  try {
++    const r = await fetch('torrents/swarm.json', { cache: 'no-cache' });
++    if (!r.ok) return;
++    const j = await r.json();
++    swarmState.byIh = new Map((j.bundles || []).map((b) => [b.infohash, b]));
++    swarmState.updated = j.updated || null;
++  } catch (e) { /* the Swarm tab says it has no figures */ }
++  swarmState.loaded = true;
++}
++function hubEntry(rec) {
++  const bundles = torrentsFor(rec.lineId).slice().sort((a, b) => (b.version || 0) - (a.version || 0));
++  const top = bundles[0] || null;
++  const c = catalogue(rec);
++  const slug = top && top.repo ? top.repo : c && c.title && /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(c.title) ? c.title : 'line/' + (rec.symbol || shortId(rec.lineId)).replace(/[^A-Za-z0-9._-]/g, '-');
++  const [owner, name] = slug.split('/');
++  const formats = [...new Set(bundles.map((b) => (b.palw ? (b.palw.magic === 'PALWB0A2' ? 'PALW' : b.palw.magic) : b.kind === 'source-weights' ? 'Weights' : b.kind)))];
++  return { rec, slug, owner, name, bundles, top, task: top && top.task ? top.task : null, params: (top && top.params) || (c && c.params) || null, formats, base: top && top.base_model ? top.base_model : null, variant: (top && top.variant) || (c && c.variant) || modelSub(rec) || null, license: top ? top.license : null, summary: c && c.summary ? c.summary : null };
++}
++function hubEntries() { return Array.from(db.lines.values()).map(hubEntry); }
++function hubFind(arg) {
++  const id = normId(arg);
++  return hubEntries().find((e) => (id ? e.rec.lineId === id : e.slug.toLowerCase() === arg.toLowerCase())) || null;
++}
++function hubAvatar(owner, size) {
++  let x = 0; for (const ch of owner) x = (x * 31 + ch.charCodeAt(0)) >>> 0;
++  const hues = [262, 200, 150, 28, 330, 45, 180];
++  const s = size || 20;
++  return h`<span class="avatar hub-av" style="--h:${hues[x % hues.length]};width:${s}px;height:${s}px;font-size:${Math.round(s * 0.55)}px" aria-hidden="true">${owner.slice(0, 1).toUpperCase()}</span>`;
++}
++function taskWord(t) { return TASK_WORDS[t] || t; }
++function fmtDot(f) { return h`<span class="hub-dot" style="background:${FORMAT_COLORS[f] || '#8b949e'}"></span>`; }
++function hubDescription(e) {
++  if (e.summary) return e.summary;
++  if (e.base) return 'PALW conversion of ' + e.base + (e.variant ? ' (' + e.variant + ')' : '') + ', distributed over BitTorrent v2.';
++  return e.variant || 'A model line on the MISAKA chain.';
++}
++
++// A small Markdown renderer for model cards: everything is escaped first, then a known subset is
++// turned back into markup. Links are http(s) or relative only.
++function mdInline(s) {
++  return s
++    .replace(/`([^`]+)`/g, (m, c) => '<code>' + c + '</code>')
++    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
++    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
++    .replace(/\[([^\]]+)\]\(((?:https?:\/\/|\.?\/|#)[^)\s]*)\)/g, (m, t, u) => '<a href="' + u + '"' + (/^https?:/.test(u) ? ' target="_blank" rel="noopener"' : '') + '>' + t + '</a>');
++}
++function renderMarkdown(src) {
++  let text = String(src || '').replace(/\r\n/g, '\n');
++  const meta = {};
++  const fm = /^---\n([\s\S]*?)\n---\n?/.exec(text);
++  if (fm) {
++    let key = null;
++    for (const line of fm[1].split('\n')) {
++      const kv = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(line);
++      if (kv) { key = kv[1]; meta[key] = kv[2] ? kv[2].replace(/^["']|["']$/g, '') : []; }
++      else if (key && /^\s*-\s+/.test(line) && Array.isArray(meta[key])) meta[key].push(line.replace(/^\s*-\s+/, '').trim());
++    }
++    text = text.slice(fm[0].length);
++  }
++  const lines = esc(text).split('\n');
++  let out = '', i = 0;
++  const para = [];
++  const flush = () => { if (para.length) { out += '<p>' + mdInline(para.join(' ')) + '</p>'; para.length = 0; } };
++  while (i < lines.length) {
++    const l = lines[i];
++    if (/^```/.test(l)) { flush(); const code = []; i++; while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]); i++; out += '<pre><code>' + code.join('\n') + '</code></pre>'; continue; }
++    const hd = /^(#{1,6})\s+(.*)$/.exec(l);
++    if (hd) { flush(); out += '<h' + hd[1].length + '>' + mdInline(hd[2]) + '</h' + hd[1].length + '>'; i++; continue; }
++    if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(l)) { flush(); out += '<hr>'; i++; continue; }
++    if (/^&gt;\s?/.test(l)) { flush(); const q = []; while (i < lines.length && /^&gt;\s?/.test(lines[i])) q.push(lines[i++].replace(/^&gt;\s?/, '')); out += '<blockquote>' + mdInline(q.join(' ')) + '</blockquote>'; continue; }
++    if (/^\s*[-*]\s+/.test(l) || /^\s*\d+\.\s+/.test(l)) {
++      flush(); const ordered = /^\s*\d+\./.test(l); const items = [];
++      while (i < lines.length && (/^\s*[-*]\s+/.test(lines[i]) || /^\s*\d+\.\s+/.test(lines[i]))) items.push(lines[i++].replace(/^\s*(?:[-*]|\d+\.)\s+/, ''));
++      out += (ordered ? '<ol>' : '<ul>') + items.map((x) => '<li>' + mdInline(x) + '</li>').join('') + (ordered ? '</ol>' : '</ul>'); continue;
++    }
++    if (/^\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
++      flush(); const row = (r) => r.trim().replace(/^\||\|$/g, '').split('|').map((c) => mdInline(c.trim()));
++      const head = row(l); i += 2; const body = [];
++      while (i < lines.length && /^\|.*\|\s*$/.test(lines[i])) body.push(row(lines[i++]));
++      out += '<table><thead><tr>' + head.map((c) => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>' + body.map((r) => '<tr>' + r.map((c) => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</tbody></table>'; continue;
++    }
++    if (!l.trim()) { flush(); i++; continue; }
++    para.push(l); i++;
++  }
++  flush();
++  return { html: out, meta };
++}
++function hubTopics(e) {
++  const t = [];
++  if (e.task) t.push(e.task);
++  for (const f of e.formats) t.push(f.toLowerCase());
++  if (e.bundles.length) t.push('bittorrent-v2');
++  if (e.base) t.push((e.base.split('/')[1] || e.base).toLowerCase());
++  if (torrents.network) t.push(torrents.network);
++  return t;
++}
++// The Primer page shell every hub page shares.
++function hubShell(inner) { return '<div class="hub" data-color-mode="dark" data-dark-theme="dark">' + inner + '</div>'; }
++function fileIcon(f) { return /\.(md|txt)$|^LICENSE/.test(f.path) ? oi('file', 'color-fg-muted') : /\.json$|palwmanifest$/.test(f.path) ? oi('file-code', 'color-fg-muted') : oi('file-binary', 'color-fg-muted'); }
++
++// ---- #/models ------------------------------------------------------------------------------
++async function pageModels(arg) {
++  if (arg) return pageHubModel(arg);
++  const gen = pageState.gen, alive = () => gen === pageState.gen;
++  const main = $('#main');
++  const view = { q: '', sort: store.get('hub:sort', 'used'), task: null, fmt: null, dl: false };
++  main.innerHTML = hubShell(h`<div class="container-xl px-3 px-md-4 px-lg-5 py-4">
++    <div class="d-flex flex-items-center mb-3"><h1 class="h2 text-normal">${oi('repo', 'mr-2 color-fg-muted')}Models <span class="Counter" id="hubCount"></span></h1></div>
++    <div class="d-flex flex-wrap flex-items-center mb-3 hub-filterbar">
++      <input type="search" id="hubQ" class="form-control flex-auto mr-2 mb-2" placeholder="Find a model…" aria-label="Find a model">
++      <span id="hubMenus" class="d-flex flex-wrap"></span>
++    </div>
++    <div class="Box" id="hubList"></div>
++    <p class="f6 color-fg-muted mt-3">${oi('info', 'mr-1')}Models come from the node; downloads come from the BitTorrent v2 swarm. This site stores no weights.</p>
++  </div>`.s);
++  function menu(id, label, current, items) {
++    return h`<details class="details-reset details-overlay position-relative mr-2 mb-2" id="${id}">
++      <summary class="btn" aria-haspopup="true">${label}${current ? ': ' : ''}${current ? h`<span class="text-bold">${current}</span>` : ''} ${oi('triangle-down')}</summary>
++      <div class="dropdown-menu dropdown-menu-se hub-menu">${raw(items.map(([v, t, on]) => h`<button class="dropdown-item btn-link" data-v="${v}">${on ? oi('check', 'mr-1') : raw('<span class="hub-ck"></span>')}${t}</button>`.s).join(''))}</div>
++    </details>`.s;
++  }
++  function render() {
++    if (!alive()) return;
++    const all = hubEntries();
++    const tasks = [...new Set(all.map((e) => e.task).filter(Boolean))];
++    const fmts = [...new Set(all.flatMap((e) => e.formats))];
++    $('#hubMenus').innerHTML =
++      menu('mTask', 'Task', view.task ? taskWord(view.task) : '', [['', 'All', !view.task], ...tasks.map((t) => [t, taskWord(t), view.task === t])]) +
++      menu('mFmt', 'Format', view.fmt || '', [['', 'All', !view.fmt], ...fmts.map((f) => [f, f, view.fmt === f])]) +
++      menu('mSort', 'Sort', { used: 'Most used', members: 'Most members', name: 'Name' }[view.sort], [['used', 'Most used', view.sort === 'used'], ['members', 'Most members', view.sort === 'members'], ['name', 'Name', view.sort === 'name']]) +
++      h`<button class="btn mb-2 ${view.dl ? 'btn-primary' : ''}" id="mDl" aria-pressed="${view.dl}">${oi('download', 'mr-1')}Downloadable</button>`.s;
++    let list = all;
++    if (view.q) { const q = view.q.toLowerCase(); list = list.filter((e) => e.slug.toLowerCase().includes(q) || (e.rec.symbol || '').toLowerCase().includes(q) || e.rec.lineId.includes(q)); }
++    if (view.task) list = list.filter((e) => e.task === view.task);
++    if (view.fmt) list = list.filter((e) => e.formats.includes(view.fmt));
++    if (view.dl) list = list.filter((e) => e.bundles.length);
++    const used = (e) => usageOf(e.rec) || 0, held = (e) => Number(membersHold(e.rec.market) || 0n);
++    list.sort((a, b) => view.sort === 'name' ? a.slug.localeCompare(b.slug) : view.sort === 'members' ? held(b) - held(a) : (b.bundles.length - a.bundles.length) || (used(b) - used(a)));
++    $('#hubCount').textContent = list.length;
++    $('#hubList').innerHTML = list.length ? list.map((e) => h`<div class="Box-row d-flex flex-items-start">
++        <div class="mr-3 mt-1">${hubAvatar(e.owner, 32)}</div>
++        <div class="flex-auto min-width-0">
++          <h3 class="f4 text-normal mb-1 wb-break-word"><a class="Link--primary" href="#/models/${e.slug}"><span class="color-fg-muted">${e.owner} / </span><span class="text-bold">${e.name}</span></a> <span class="Label Label--secondary v-align-middle ml-1">${e.bundles.length ? 'Downloadable' : 'Chain only'}</span></h3>
++          <p class="color-fg-muted mb-2 pr-4">${hubDescription(e)}</p>
++          <div class="f6 color-fg-muted d-flex flex-wrap hub-meta">
++            ${e.formats.length ? h`<span>${fmtDot(e.formats[0])}${e.formats.join(', ')}</span>` : ''}
++            ${e.task ? h`<span>${taskWord(e.task)}</span>` : ''}
++            ${e.params ? h`<span>${oi('cpu', 'mr-1')}${e.params}</span>` : ''}
++            <span title="Paid inferences on the current version, counted by the chain">${oi('pulse', 'mr-1')}${usageOf(e.rec) != null ? fmtInt(usageOf(e.rec)) : '—'}</span>
++            <span title="Members hold">${oi('people', 'mr-1')}${e.rec.market && membersHold(e.rec.market) != null ? fmtPos(membersHold(e.rec.market)) : '—'}</span>
++            ${e.bundles.length ? h`<span>${oi('download', 'mr-1')}${fmtBytesIec(e.top.total_bytes)}</span>` : ''}
++            ${e.top && e.top.created ? h`<span>Published ${e.top.created}</span>` : ''}
++          </div>
++        </div></div>`.s).join('') : `<div class="blankslate"><h3 class="blankslate-heading">No model matches</h3><p>Clear the filters to see every model.</p></div>`;
++  }
++  $('#hubQ').addEventListener('input', (ev) => { view.q = ev.target.value; render(); });
++  $('#hubMenus').addEventListener('click', (ev) => {
++    const b = ev.target.closest('button'); if (!b) return;
++    if (b.id === 'mDl') view.dl = !view.dl;
++    else {
++      const which = b.closest('details') && b.closest('details').id;
++      if (which === 'mTask') view.task = b.dataset.v || null;
++      if (which === 'mFmt') view.fmt = b.dataset.v || null;
++      if (which === 'mSort') { view.sort = b.dataset.v; store.set('hub:sort', view.sort); }
++    }
++    render();
++  });
++  render();
++  const onDb = () => render(); db.listeners.add(onDb); onCleanup(() => db.listeners.delete(onDb));
++  await loadTorrents(); render();
++  await loadAllLines(true); render();
++  every(30000, () => loadAllLines(true));
++}
++
++// ---- #/models/<owner>/<name>[/tree/<tab>] ---------------------------------------------------
++function downloadMenu(e) {
++  const b = e.top;
++  if (!b) return h`<button class="btn" disabled title="No bundle of this model is listed for download yet">${oi('download', 'mr-1')}Download</button>`;
++  return h`<details class="details-reset details-overlay position-relative" id="dlMenu">
++    <summary class="btn btn-primary" aria-haspopup="true">${oi('download', 'mr-1')}Download ${oi('triangle-down')}</summary>
++    <div class="dropdown-menu dropdown-menu-sw hub-menu hub-dlmenu">
++      <div class="px-3 pt-2 pb-1 f6 color-fg-muted">${oi('broadcast', 'mr-1')}BitTorrent v2 · ${fmtBytesIec(b.total_bytes)}</div>
++      <a class="dropdown-item" href="${modelLink(b)}" data-applink="${modelLink(b)}">${oi('download', 'mr-2')}<strong>Download with MISAKA</strong><div class="hub-sub">Opens MISAKA Model Transport. <span class="hub-get">Not installed? <u data-get="1">Get the app</u></span></div></a>
++      <div class="dropdown-divider"></div>
++      <a class="dropdown-item" href="${b.torrent}" download>${oi('download', 'mr-2')}Download .torrent<div class="hub-sub">qBittorrent ≥ 4.4, Deluge 2.1, or another v2 client</div></a>
++      <a class="dropdown-item" href="${torrentMagnet(b)}">${oi('link', 'mr-2')}Open magnet link<div class="hub-sub">Your client needs DHT on</div></a>
++      <div class="dropdown-divider"></div>
++      <div class="px-3 py-1 f6 text-bold">Magnet</div>
++      <div class="px-3 pb-2 d-flex"><input class="form-control input-sm input-monospace flex-auto" readonly value="${torrentMagnet(b)}" aria-label="Magnet link"><button class="btn btn-sm ml-1" data-copy="${torrentMagnet(b)}" title="Copy magnet">${oi('copy')}</button></div>
++      <div class="px-3 py-1 f6 text-bold">${oi('terminal', 'mr-1')}misaka-torrent</div>
++      <div class="px-3 pb-2 d-flex"><input class="form-control input-sm input-monospace flex-auto" readonly value="${torrentPullCmd(b)}" aria-label="misaka-torrent command"><button class="btn btn-sm ml-1" data-copy="${torrentPullCmd(b)}" title="Copy command">${oi('copy')}</button></div>
++      <div class="px-3 pb-2 f6 color-fg-muted">misaka-torrent also checks the bundle commitment and refuses unsafe files before writing a byte.</div>
++    </div></details>`;
++}
++async function pageHubModel(arg) {
++  const gen = pageState.gen, alive = () => gen === pageState.gen;
++  const main = $('#main');
++  const [slugPart, tabPart] = arg.split('/tree/');
++  const TABS = [['card', 'book', 'Model card'], ['files', 'file-code', 'Files'], ['versions', 'tag', 'Versions'], ['swarm', 'broadcast', 'Swarm'], ['community', 'comment-discussion', 'Community'], ['access', 'unlock', 'Access']];
++  const tab = TABS.some(([k]) => k === tabPart) ? tabPart : 'card';
++  main.innerHTML = hubShell('<div class="container-xl px-3 py-6"><div class="blankslate"><p>Loading model…</p></div></div>');
++  await loadTorrents();
++  let e = hubFind(slugPart);
++  if (!e) { await loadAllLines(true); e = hubFind(slugPart); }
++  if (!alive()) return;
++  if (!e) { main.innerHTML = hubShell(h`<div class="container-xl px-3 py-6"><div class="blankslate">${oi('repo', 'blankslate-icon')}<h3 class="blankslate-heading">No model named ${slugPart}</h3><p><a href="#/models">All models →</a></p></div></div>`.s); return; }
++  const lineId = e.rec.lineId;
++  const base = '#/models/' + e.slug;
++  function about() {
++    const rec = e.rec, m = rec.market, b = e.top;
++    return h`<div class="hub-side">
++      <div class="pb-3 mb-3 border-bottom">
++        <h2 class="h4 mb-3">About</h2>
++        <p class="f4 my-3">${hubDescription(e)}</p>
++        <div class="hub-topics mb-3">${raw(hubTopics(e).map((t) => h`<span class="hub-topic">${t}</span>`.s).join(''))}</div>
++        <div class="f6 hub-aboutlist">
++          ${b && b.readme ? h`<div class="mt-2"><a class="Link--muted" href="${base}">${oi('book', 'mr-2')}Model card</a></div>` : ''}
++          ${e.license ? h`<div class="mt-2"><span class="color-fg-muted">${oi('law', 'mr-2')}${e.license} license</span></div>` : ''}
++          <div class="mt-2"><a class="Link--muted" href="${base}/tree/access">${oi('pulse', 'mr-2')}<strong>${usageOf(rec) != null ? fmtInt(usageOf(rec)) : '—'}</strong> paid inferences</a></div>
++          <div class="mt-2"><a class="Link--muted" href="${base}/tree/access">${oi('people', 'mr-2')}<strong>${m && membersHold(m) != null ? fmtPos(membersHold(m)) : '—'}</strong> members</a></div>
++          ${b ? h`<div class="mt-2"><a class="Link--muted" href="${base}/tree/swarm">${oi('download', 'mr-2')}<strong>${fmtBytesIec(b.total_bytes)}</strong> over BitTorrent v2</a></div>` : ''}
++        </div>
++      </div>
++      <div class="pb-3 mb-3 border-bottom">
++        <h2 class="h4 mb-3"><a class="Link--primary" href="${base}/tree/versions">Versions</a> <span class="Counter">${e.bundles.length}</span></h2>
++        ${b ? h`<a class="Link--primary d-flex flex-items-start" href="${base}/tree/versions">${oi('tag', 'mr-2 mt-1 color-fg-success')}<div><span class="text-bold mr-1">v${b.version || 1}</span><span class="Label Label--success">Latest</span><div class="f6 color-fg-muted">${b.created || ''}</div></div></a>` : raw('<div class="f6 color-fg-muted">No bundle published</div>')}
++      </div>
++      ${e.base ? h`<div class="pb-3 mb-3 border-bottom"><h2 class="h4 mb-3">Model tree</h2>
++        <div class="f6 color-fg-muted">Base model</div><a class="Link--primary" href="https://huggingface.co/${e.base}" target="_blank" rel="noopener">${e.base} ${oi('link-external')}</a>
++        <div class="f6 color-fg-muted mt-2">This model</div><div class="text-bold">${e.slug}</div>${e.variant ? h`<div class="f6 color-fg-muted">${e.variant}</div>` : ''}</div>` : ''}
++      <div class="pb-3 mb-3">
++        <h2 class="h4 mb-3">On chain</h2>
++        <div class="f6"><div class="color-fg-muted">Line</div><div class="mb-2">${idCell(lineId, 12)}</div>
++        <div class="color-fg-muted">Current root</div><div class="mb-2">${rec.info && rec.info.currentRoot ? idCell(rec.info.currentRoot, 12) : '—'}</div>
++        <div class="color-fg-muted">Membership</div><div>${m && m.seeded && m.price != null ? h`<strong>${fmtPrice(m.price)}</strong> MSK` : m ? 'store not open' : '—'}</div></div>
++      </div></div>`;
++  }
++  function body() {
++    const rec = e.rec, m = rec.market, b = e.top;
++    if (tab === 'card') {
++      const card = b && b.readme ? renderMarkdown(b.readme) : null;
++      return h`<div class="Box">
++        <div class="Box-header py-2 d-flex flex-items-center"><span class="text-bold">${oi('book', 'mr-2')}README.md</span>${e.license ? h`<span class="ml-3 color-fg-muted f6">${oi('law', 'mr-1')}${e.license}</span>` : ''}</div>
++        <div class="Box-body px-5 py-4">${card ? h`<article class="markdown-body">${raw(card.html)}</article>` : h`<div class="blankslate">${oi('book', 'blankslate-icon')}<h3 class="blankslate-heading">No model card yet</h3><p>A model card is the README.md inside the model's bundle.${b ? '' : ' This model has no bundle listed for download yet.'}</p></div>`}</div>
++      </div>`;
++    }
++    if (tab === 'files') {
++      if (!b) return h`<div class="Box"><div class="blankslate">${oi('file-code', 'blankslate-icon')}<h3 class="blankslate-heading">No files yet</h3><p>No bundle of this model is listed for download.</p></div></div>`;
++      const files = [...b.files, { path: 'misaka-bundle.json', size: null, role: 'descriptor', sha256: null }].sort((x, y) => x.path.localeCompare(y.path));
++      return h`<div class="d-flex flex-items-center mb-3">
++          <details class="details-reset details-overlay position-relative mr-2"><summary class="btn btn-sm">${oi('git-branch', 'mr-1')}<span class="text-bold">v${b.version || 1}</span> ${oi('triangle-down')}</summary>
++            <div class="dropdown-menu dropdown-menu-se hub-menu"><div class="dropdown-header">Versions</div>${raw(e.bundles.map((x) => h`<span class="dropdown-item">${x === b ? oi('check', 'mr-1') : raw('<span class="hub-ck"></span>')}v${x.version || 1}${x === b ? ' · latest' : ''}</span>`.s).join(''))}</div></details>
++          <a class="Link--muted f6 mr-3" href="${base}/tree/versions">${oi('tag', 'mr-1')}<strong>${e.bundles.length}</strong> version${e.bundles.length === 1 ? '' : 's'}</a>
++        </div>
++        <div class="Box">
++          <div class="Box-header d-flex flex-items-center py-2">${hubAvatar(e.owner, 20)}<span class="ml-2 text-bold">${e.owner}</span><span class="ml-2 color-fg-muted f6 css-truncate css-truncate-target hub-trunc">Bundle v${b.version || 1} · commitment ${b.bundle_commitment.slice(0, 12)}…</span><span class="flex-auto"></span><span class="f6 color-fg-muted"><span class="text-mono">${b.btv2_infohash.slice(0, 7)}</span> · ${b.created || ''}</span></div>
++          ${raw(files.map((f) => h`<div class="Box-row Box-row--hover-gray py-2 d-flex flex-items-center">
++            <span class="mr-3 flex-shrink-0">${fileIcon(f)}</span>
++            <span class="flex-auto min-width-0 css-truncate css-truncate-target hub-fname" title="${f.path}">${f.path}</span>
++            <span class="color-fg-muted f6 mx-3 hide-sm hide-md hub-role">${f.role}</span>
++            ${f.sha256 ? h`<span class="f6 color-fg-muted text-mono mr-2 hide-sm hide-md" title="SHA-256 ${f.sha256}">${f.sha256.slice(0, 7)}</span><button class="btn-octicon mr-2 hide-sm hide-md" data-copy="${f.sha256}" title="Copy SHA-256">${oi('copy')}</button>` : h`<span class="f6 color-fg-muted mr-2 hide-sm hide-md" title="bundle commitment ${b.bundle_commitment}">commitment</span>`}
++            <span class="f6 color-fg-muted text-right hub-size">${f.size != null ? fmtBytesIec(f.size) : '—'}</span>
++          </div>`.s).join(''))}
++          <div class="Box-footer f6 color-fg-muted py-2">${oi('shield-check', 'mr-1')}Total ${fmtBytesIec(b.total_bytes)} · pieces of ${b.piece_length} · every 16 KiB block is checked against the infohash</div>
++        </div>`;
++    }
++    if (tab === 'versions') {
++      if (!e.bundles.length) return h`<div class="Box"><div class="blankslate">${oi('tag', 'blankslate-icon')}<h3 class="blankslate-heading">No versions published</h3><p>Each version is one immutable snapshot with its own infohash and swarm.</p></div></div>`;
++      return h`<div class="Box">${raw(e.bundles.map((x) => h`<div class="Box-row">
++          <div class="d-flex flex-items-center mb-2"><h3 class="f3 mr-2">${oi('tag', 'mr-1 color-fg-muted')}v${x.version || 1}</h3>${x === e.top ? raw('<span class="Label Label--success">Latest</span>') : ''}<span class="flex-auto"></span><span class="f6 color-fg-muted">${oi('clock', 'mr-1')}${x.created || ''}</span></div>
++          <div class="f6 color-fg-muted mb-2">${x.kind} · ${fmtBytesIec(x.total_bytes)} · ${x.files.length + 1} files · ${x.license || ''}</div>
++          <dl class="hub-dl f6">
++            <dt>Infohash (v2)</dt><dd>${idCell(x.btv2_infohash, 24)}</dd>
++            <dt>Bundle commitment</dt><dd>${idCell(x.bundle_commitment, 24)}</dd>
++            ${x.palw && x.palw.roots ? raw(x.palw.roots.map((r) => h`<dt>Inventory root</dt><dd>${idCell(r.inventory_root, 24)}</dd>`.s).join('')) : ''}
++          </dl>
++          <div class="mt-2"><a class="btn btn-sm mr-1" href="${x.torrent}" download>${oi('download', 'mr-1')}.torrent</a><button class="btn btn-sm" data-copy="${torrentMagnet(x)}">${oi('copy', 'mr-1')}Copy magnet</button></div>
++        </div>`.s).join(''))}</div>`;
++    }
++    if (tab === 'swarm') {
++      if (!b) return h`<div class="Box"><div class="blankslate">${oi('broadcast', 'blankslate-icon')}<h3 class="blankslate-heading">No swarm</h3><p>This model has no bundle listed for download.</p></div></div>`;
++      const s = swarmState.byIh.get(b.btv2_infohash);
++      const row = (k, v, note) => h`<div class="Box-row d-flex flex-items-center"><span class="flex-auto color-fg-muted">${k}</span><span class="text-bold mr-2">${v}</span>${note ? h`<span class="f6 color-fg-muted hub-note">${note}</span>` : ''}</div>`;
++      return h`<div class="Box mb-3"><div class="Box-header"><h3 class="Box-title">${oi('broadcast', 'mr-1')}Availability</h3></div><div class="Box-body">
++          <span class="Progress Progress--large mb-2"><span class="Progress-item color-bg-success-emphasis" style="width:${s && s.state === 'seeding' ? 100 : 0}%"></span></span>
++          <div class="f6 color-fg-muted">${s && s.state === 'seeding' ? 'At least one complete copy is seeding.' : 'No seeder report.'}</div></div></div>
++        <div class="Box mb-3">
++          ${row('Seeders known', s && s.state === 'seeding' ? '1+' : '—', "this site's seeder; others are not counted")}
++          ${row('Peers now', s ? String(s.peers) : '—', "connected to this site's seeder")}
++          ${row('Served', s ? fmtBytesIec(s.uploaded) : '—', "uploaded by this site's seeder")}
++          ${row('Protocol', 'BitTorrent v2 (BEP 52)')}
++          ${row('Piece size', b.piece_length)}
++          ${row('Discovery', 'Public DHT')}
++        </div>
++        <div class="flash f6">${oi('info', 'mr-1')}${swarmState.updated ? 'Updated ' + new Date(swarmState.updated * 1000).toLocaleTimeString() + '. ' : ''}Peers find each other over the public DHT, so the swarm has no central count: these figures are only what this site's own seeder sees. Every downloader seeds back while its client runs.</div>`;
++    }
++    if (tab === 'community') {
++      return h`<div class="Box"><div class="blankslate blankslate-spacious">${oi('comment-discussion', 'blankslate-icon')}<h3 class="blankslate-heading">Discussions are not open yet</h3><p>Community threads for each model are coming. Until then, the model's owner and developer are on chain in the line's roles.</p><a class="btn" href="#/line/${lineId}">Chain details</a></div></div>`;
++    }
++    return h`<div class="Box mb-3">
++        <div class="Box-header"><h3 class="Box-title">${oi('unlock', 'mr-1')}Member access</h3></div>
++        <div class="Box-row d-flex"><span class="flex-auto color-fg-muted">Membership price</span><strong>${m && m.seeded && m.price != null ? fmtPrice(m.price) + ' MSK' : m ? 'store not open' : '—'}</strong></div>
++        <div class="Box-row d-flex"><span class="flex-auto color-fg-muted">Members hold</span><strong>${m && membersHold(m) != null ? fmtPos(membersHold(m)) + ' / ' + fmtPos(m.supplyUnits) : '—'}</strong></div>
++        <div class="Box-row d-flex"><span class="flex-auto color-fg-muted">Used (current version)</span><strong>${usageOf(rec) != null ? fmtInt(usageOf(rec)) : '—'}</strong></div>
++        <div class="Box-footer"><a class="btn btn-primary mr-2" href="#/store/${lineId}">Open member access</a><a class="btn" href="#/line/${lineId}">Chain details</a></div>
++      </div>
++      <p class="f6 color-fg-muted">A membership is a right to the model's member service, bought from the store on chain. It is separate from downloading: the bundle is free to fetch.</p>`;
++  }
++  function render() {
++    if (!alive()) return;
++    e = hubFind(e.slug) || e;
++    const counts = { files: e.top ? e.top.files.length + 1 : 0, versions: e.bundles.length };
++    main.innerHTML = hubShell(h`
++      <div class="hub-head pt-3">
++        <div class="container-xl px-3 px-md-4 px-lg-5">
++          <div class="d-flex flex-wrap flex-items-center mb-3">
++            <div class="flex-auto min-width-0 d-flex flex-wrap flex-items-center f3 text-normal wb-break-word">
++              ${oi('repo', 'color-fg-muted mr-2')}<a class="Link--primary" href="#/models">${e.owner}</a><span class="mx-1 color-fg-muted">/</span><strong class="mr-2"><a class="Link--primary" href="${base}">${e.name}</a></strong>
++              <button class="btn-octicon mr-2" data-copy="${e.slug}" title="Copy model name">${oi('copy')}</button>
++              <span class="Label Label--secondary v-align-middle">${e.bundles.length ? 'Downloadable' : 'Chain only'}</span>
++            </div>
++            <div class="mt-2 mt-md-0">${downloadMenu(e)}</div>
++          </div>
++          <nav class="UnderlineNav hub-tabs" aria-label="Model"><div class="UnderlineNav-body">
++            ${raw(TABS.map(([k, icon, label]) => h`<a class="UnderlineNav-item" href="${base}${k === 'card' ? '' : '/tree/' + k}" ${tab === k ? raw('aria-current="page"') : ''}>${oi(icon, 'UnderlineNav-octicon')}<span>${label}</span>${counts[k] ? h`<span class="Counter">${counts[k]}</span>` : ''}</a>`.s).join(''))}
++          </div></nav>
++        </div>
++      </div>
++      <div class="container-xl px-3 px-md-4 px-lg-5 mt-4">
++        <div class="hub-layout"><div class="hub-mainc min-width-0">${body()}</div>${about()}</div>
++      </div>`.s);
++    $$('#main [data-copy]').forEach((b) => b.addEventListener('click', () => toast('Copied.', 'ok')));
++    $$('#main [data-applink]').forEach((a) => a.addEventListener('click', (ev) => { ev.preventDefault(); if (ev.target.closest('[data-get]')) { location.hash = '#/download'; return; } openInApp(a.dataset.applink); }));
++  }
++  render();
++  await Promise.all([refreshMarket(lineId), refreshLineInfo(lineId), refreshUsage(lineId), loadSwarm()]);
++  render();
++  every(60000, async () => { await loadSwarm(); await refreshMarket(lineId); render(); });
++}
++
++// ---- #/download: MISAKA Model Transport, served from this site -------------------------------
++// The installers live under downloads/misaka-torrent/<version>/ on this host, listed with their
++// SHA-256 in downloads/misaka-torrent/latest.json. GitHub hosts the source, not the downloads.
++function detectOs() {
++  const ua = navigator.userAgent || '', p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
++  if (/Mac/i.test(p) || /Mac OS X/i.test(ua)) return 'macos';
++  if (/Win/i.test(p)) return 'windows';
++  if (/Linux|X11/i.test(p) || /Linux/i.test(ua)) return /Android/i.test(ua) ? 'other' : 'linux';
++  return 'other';
++}
++const OS_WORDS = { macos: 'macOS', linux: 'Linux', windows: 'Windows', other: 'your system' };
++function modelLink(b) { return 'misaka-model://' + (torrents.network || 'testnet-12') + '/' + b.line_id + '/' + (b.version || 1) + '?kind=' + b.kind; }
++// Opens a misaka-model:// link; if nothing takes the focus, the app is probably not installed.
++function openInApp(url) {
++  let left = false;
++  const onBlur = () => { left = true; };
++  window.addEventListener('blur', onBlur, { once: true });
++  location.href = url;
++  setTimeout(() => {
++    window.removeEventListener('blur', onBlur);
++    if (!left && document.hasFocus()) toast(raw('Nothing opened? Install <b>MISAKA Model Transport</b> first: <a href="#/download">Download</a>.'), 'warn', 'App not found');
++  }, 1800);
++}
++async function pageDownload() {
++  const gen = pageState.gen, alive = () => gen === pageState.gen;
++  const main = $('#main');
++  main.innerHTML = hubShell('<div class="container-lg px-3 py-6"><div class="blankslate"><p>Loading downloads…</p></div></div>');
++  let rel = null, err = null;
++  try { const r = await fetch('downloads/misaka-torrent/latest.json', { cache: 'no-cache' }); if (!r.ok) throw new Error('HTTP ' + r.status); rel = await r.json(); } catch (e) { err = e.message; }
++  if (!alive()) return;
++  if (!rel) { main.innerHTML = hubShell(h`<div class="container-lg px-3 py-6"><div class="flash flash-error">${oi('info', 'mr-1')}The download list could not be read (${err}).</div></div>`.s); return; }
++  const os = detectOs();
++  const apps = rel.assets.filter((a) => a.kind === 'app');
++  const mine = apps.filter((a) => a.os === os);
++  const primary = mine.find((a) => a.primary) || mine[0] || null;
++  const assetRow = (a) => h`<div class="Box-row d-flex flex-items-center flex-wrap">
++      <span class="mr-2">${oi(a.kind === 'cli' ? 'terminal' : 'package', 'color-fg-muted')}</span>
++      <a class="text-bold mr-2 wb-break-all" href="${a.url}" download>${a.name}</a>
++      <span class="Label Label--secondary mr-2">${a.label}</span>
++      <span class="flex-auto"></span>
++      <span class="f6 color-fg-muted mr-3 text-mono" title="SHA-256 ${a.sha256}">sha256:${a.sha256.slice(0, 12)}…</span><button class="btn-octicon mr-3" data-copy="${a.sha256}" title="Copy SHA-256">${oi('copy')}</button>
++      <span class="f6 color-fg-muted hub-size text-right">${fmtBytesIec(a.size)}</span>
++    </div>`.s;
++  const steps = {
++    macos: [
++      'Open the <b>.dmg</b> and drag <b>MISAKA Model Transport</b> to Applications.',
++      'This build is not yet signed with an Apple Developer ID. On first launch macOS refuses it: open <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b> (or run <code>xattr -dr com.apple.quarantine "/Applications/MISAKA Model Transport.app"</code>). Check the SHA-256 below first.',
++      'The app starts in the menu bar and at login. Back on a model page, choose <b>Download → Download with MISAKA</b>.',
++    ],
++    linux: [
++      'Debian / Ubuntu: <code>sudo apt install ./' + esc((apps.find((a) => a.os === 'linux' && /\.deb$/.test(a.name)) || { name: 'misaka-model-transport.deb' }).name) + '</code>',
++      'Any distribution: <code>chmod +x</code> the <b>.AppImage</b> and run it; it registers <code>misaka-model://</code> links on first start.',
++      'The app sits in the system tray and starts at login. Back on a model page, choose <b>Download → Download with MISAKA</b>.',
++    ],
++  };
++  const stepList = (k) => (steps[k] || []).map((s, i) => '<li class="mb-2"><span class="Counter mr-2">' + (i + 1) + '</span>' + s + '</li>').join('');
++  main.innerHTML = hubShell(h`<div class="container-lg px-3 px-md-4 py-4">
++    <div class="d-flex flex-items-center flex-wrap mb-1"><h1 class="h1 text-normal mr-3">${oi('download', 'mr-2 color-fg-muted')}MISAKA Model Transport</h1><span class="Label Label--success mr-2">Latest</span><span class="Label Label--secondary">v${rel.version}</span></div>
++    <p class="f4 color-fg-muted mb-4">Download AI models from other MISAKA users over BitTorrent v2, check every byte, and share them back while it runs. ${rel.date ? 'Released ' + rel.date + '.' : ''}</p>
++    <div class="Box mb-4"><div class="Box-body d-flex flex-items-center flex-wrap">
++      <div class="flex-auto mr-3 mb-2">
++        <div class="f3 text-bold">${primary ? 'Download for ' + primary.label : OS_WORDS[os] === 'Windows' ? 'Windows is coming' : 'Choose your system below'}</div>
++        <div class="color-fg-muted">${primary ? fmtBytesIec(primary.size) + ' · ' + (primary.requires || '') : os === 'windows' ? 'macOS and Linux are available now; a Windows build follows.' : ''}</div>
++      </div>
++      ${primary ? h`<a class="btn btn-primary btn-large mb-2" href="${primary.url}" download>${oi('download', 'mr-2')}Download ${primary.name.split('.').pop() === 'dmg' ? '.dmg' : ''}</a>` : ''}
++    </div>
++    ${mine.length > 1 ? h`<div class="Box-footer f6 color-fg-muted">Also for ${OS_WORDS[os]}: ${raw(mine.filter((a) => a !== primary).map((a) => h`<a href="${a.url}" download>${a.label}</a>`.s).join(' · '))}</div>` : ''}
++    </div>
++    <div class="hub-layout">
++      <div class="min-width-0">
++        <div class="Box mb-4"><div class="Box-header"><h2 class="Box-title">${oi('package', 'mr-1')}Assets <span class="Counter">${rel.assets.length}</span></h2></div>${raw(rel.assets.map(assetRow).join(''))}
++          <div class="Box-footer f6 color-fg-muted">${oi('shield-check', 'mr-1')}Check a download: <code>shasum -a 256 &lt;file&gt;</code> (macOS) or <code>sha256sum &lt;file&gt;</code> (Linux), against the value above or <a href="${rel.sums}">SHA256SUMS</a>.</div></div>
++        <div class="Box mb-4"><div class="Box-header"><h2 class="Box-title">${oi('book', 'mr-1')}Install on macOS</h2></div><div class="Box-body"><ol class="list-style-none">${raw(stepList('macos'))}</ol></div></div>
++        <div class="Box mb-4"><div class="Box-header"><h2 class="Box-title">${oi('book', 'mr-1')}Install on Linux</h2></div><div class="Box-body"><ol class="list-style-none">${raw(stepList('linux'))}</ol></div></div>
++        <div class="Box mb-4"><div class="Box-header"><h2 class="Box-title">${oi('terminal', 'mr-1')}Servers and the command line</h2></div><div class="Box-body markdown-body">
++          <p>The <b>CLI</b> archives hold <code>misaka-torrent</code> and the daemon <code>misaka-torrentd</code>, with no GUI:</p>
++          <pre><code>tar xzf misaka-torrent-cli-*.tar.gz
++./misaka-torrentd run --profile desktop &amp;
++./misaka-torrent pull '&lt;magnet&gt;' --expect &lt;bundle_commitment&gt;</code></pre>
++          <p>Each model page's Download menu gives the exact command.</p></div></div>
++      </div>
++      <div class="hub-side">
++        <div class="pb-3 mb-3 border-bottom"><h2 class="h4 mb-3">How it works</h2>
++          <ol class="f6 pl-3">
++            <li class="mb-2">On a model page, <b>Download with MISAKA</b> opens the app with that model.</li>
++            <li class="mb-2">The app shows the size and where it will save, and waits for you.</li>
++            <li class="mb-2">It downloads from everyone who has the model, checking each 16 KiB block, and the whole bundle against its commitment.</li>
++            <li class="mb-2">When it completes, your copy is shared with the next person, while the app runs.</li>
++          </ol></div>
++        <div class="pb-3 mb-3 border-bottom"><h2 class="h4 mb-3">Safe by design</h2>
++          <ul class="f6 pl-3">
++            <li class="mb-1">Model files only: pickle, code and archives are refused before a byte is written.</li>
++            <li class="mb-1">The transport knows no chain, holds no key and runs nothing it receives.</li>
++            <li class="mb-1">Sandboxed on macOS; Landlock and seccomp on Linux.</li>
++            <li class="mb-1">Your IP address is visible to peers, as in any BitTorrent swarm. Upload speed and sharing are in Settings.</li>
++          </ul></div>
++        <div class="pb-3"><h2 class="h4 mb-3">Source</h2><a class="Link--primary f6" href="https://github.com/MISAKA-BTC/misaka-model-transport" target="_blank" rel="noopener">${oi('link-external', 'mr-1')}misaka-model-transport (Apache-2.0)</a></div>
++      </div>
++    </div></div>`.s);
++  $$('#main [data-copy]').forEach((b) => b.addEventListener('click', () => toast('Copied.', 'ok')));
++}
++
++const PAGES = { models: pageModels, download: pageDownload, store: pageStore, portfolio: pagePortfolio, lines: pageLines, line: pageLine, leaderboard: pageLeaderboard, add: pageAdd, docs: pageDocs, dev: pageDev };
+ async function route() {
+   const first = parseHash();
+   // Links printed before the store was called a store still exist, in wallets, chats and the
+--- a/web/misaka-options/style.css
++++ b/web/misaka-options/style.css
+@@ -643,3 +643,6 @@
+   .later-row { grid-template-columns: 28px minmax(0, 1fr) 16px; }
+   .later-why { grid-column: 2; grid-row: 2; text-align: left; }
+ }
++
++/* MISAKA Torrent download cell (models table) */
++.dl-cell { white-space: nowrap; }
+--- a/web/misaka-options/index.html
++++ b/web/misaka-options/index.html
+@@ -4,21 +4,26 @@
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1">
+ <meta name="color-scheme" content="dark">
++<meta name="theme-color" content="#010409">
+ <meta name="description" content="MISAKA Options is a store for AI model memberships on the MISAKA chain: choose a model, see what its members get and what it costs, buy access, and use it. A membership is a service right, not an investment.">
+ <title>MISAKA Options</title>
+ <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23141821'/%3E%3Cpath d='M7 23V9l9 9 9-9v14' fill='none' stroke='%23A99DFF' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+-<link rel="stylesheet" href="style.css?v=20260918-access2">
++<link rel="stylesheet" href="style.css?v=20261003-gh">
++<link rel="stylesheet" href="github-theme.css?v=20261003-gh">
++<link rel="stylesheet" href="primer-hub.css?v=20261003-dl">
+ </head>
+ <body>
+ <a class="skip" href="#main">Skip to content</a>
+ <header class="nav" id="nav" role="banner">
+-  <a class="brand" href="#/store" aria-label="MISAKA Options home">
++  <a class="brand" href="#/models" aria-label="MISAKA Options home">
+     <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#1B202B"/><path d="M7 23V9l9 9 9-9v14" fill="none" stroke="#A99DFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+     <span>MISAKA <b>Options</b></span>
+     <small class="brand-tag">AI model access</small>
+   </a>
+   <button class="nav-toggle" id="navToggle" aria-label="Toggle menu" aria-expanded="false">Menu</button>
+   <nav class="nav-links" id="navLinks" aria-label="Primary">
++    <a href="#/models" data-page="models">Models</a>
++    <a href="#/download" data-page="download" title="MISAKA Model Transport: the app that downloads and shares models">Download</a>
+     <a href="#/store" data-page="store" title="The store: buy a membership in an AI model (the chain calls a model's store its market)">Buy access</a>
+     <a href="#/lines" data-page="lines">Explore models</a>
+     <a href="#/portfolio" data-page="portfolio" title="The memberships your wallet holds (the chain calls them positions) and what they give you">My access</a>
+@@ -51,6 +56,6 @@
+ </footer>
+ <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+ <script src="config.js"></script>
+-<script src="app.js?v=20261001-held-incl-retired"></script>
++<script src="app.js?v=20261003-dl"></script>
+ </body>
+ </html>

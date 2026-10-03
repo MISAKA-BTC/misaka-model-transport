@@ -1,0 +1,32 @@
+# /etc/misaka/torrent.toml — server profile. Unknown keys are refused.
+profile = "server"
+# home = "/var/lib/misaka-torrent"
+# socket = "/run/misaka-torrent/torrentd.sock"
+# listen_port = 51413            # default: random in 49152–65535 at first start, then kept
+
+[seeding]
+# A seat's address in a swarm says which classes it holds (RFC-0001 §Security): off by default.
+enabled = false
+upload_bytes_per_sec = 0        # 0 = unlimited
+
+[network]
+connections = 100
+upnp_natpmp = false
+lsd = false                     # true on a fleet LAN, by choice
+dht = true
+# MISAKA-operated bootstrap nodes first, then public routers (Open question 11).
+# dht_bootstrap = ["dht.libtorrent.org:25401", "router.bittorrent.com:6881"]
+
+[store]
+# quota_bytes = 2199023255552   # default: 50 % of the volume at first start
+incomplete_gc_days = 14
+
+[ipc]
+# The operator's uid may control the daemon; members of this gid may only read status.
+allowed_uids = []
+# read_only_gid = 990
+
+# Directories the daemon may read and seed in place (`misaka-torrent seed adopt`).
+# [[adopt_roots]]
+# id = "models"
+# path = "/srv/models"

@@ -1,0 +1,44 @@
+
+/* ---- MISAKA model hub on Primer (not part of Primer) ---- */
+.main:has(> .hub) { max-width: none; padding: 0; }
+body:has(.hub) { background: #0d1117; }
+.hub { min-height: 70vh; padding-bottom: 48px; }
+.hub .octicon { display: inline-block; vertical-align: text-bottom; fill: currentColor; overflow: visible; }
+.hub .hub-head { border-bottom: 1px solid var(--borderColor-default); }
+.hub .hub-tabs { box-shadow: none; min-height: 48px; }
+.hub .UnderlineNav-item { color: var(--fgColor-default); }
+.hub .hub-layout { display: grid; grid-template-columns: minmax(0, 1fr) 296px; gap: 24px; }
+.hub .hub-side { font-size: 14px; }
+.hub .hub-av { display: inline-grid; place-items: center; border-radius: 6px; flex: none; font-weight: 700; color: #fff; background: linear-gradient(135deg, hsl(var(--h) 70% 55%), hsl(calc(var(--h) + 40) 70% 40%)); }
+.hub .hub-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; border: 1px solid rgba(240,246,252,.1); }
+.hub .hub-meta > span { margin-right: 16px; }
+.hub .hub-topics { display: flex; flex-wrap: wrap; gap: 6px; }
+.hub .hub-topic { display: inline-flex; padding: 0 10px; font-size: 12px; font-weight: 500; line-height: 22px; border-radius: 2em; color: var(--fgColor-accent); background: var(--bgColor-accent-muted); }
+.hub .hub-menu { width: max-content; min-width: 180px; max-width: 360px; }
+.hub .hub-dlmenu { width: 360px; max-width: calc(100vw - 32px); }
+.hub .dropdown-item { white-space: normal; }
+.hub .dropdown-item.btn-link { width: 100%; text-align: left; text-decoration: none; }
+.hub .hub-sub { font-size: 12px; color: var(--fgColor-muted); margin-left: 24px; }
+.hub .dropdown-item:hover .hub-sub, .hub .dropdown-item:focus .hub-sub { color: inherit; }
+.hub .hub-ck { display: inline-block; width: 20px; }
+.hub .hub-fname { font-size: 14px; }
+.hub .hub-role { width: 120px; }
+.hub .hub-size { width: 80px; }
+.hub .hub-trunc { max-width: 420px; }
+.hub .hub-note { width: 260px; text-align: right; }
+.hub .hub-dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
+.hub .hub-dl dt { color: var(--fgColor-muted); } .hub .hub-dl dd { margin: 0; overflow-wrap: anywhere; }
+.hub .hub-filterbar .form-control { min-width: 220px; }
+/* the site's own helpers inside the hub */
+.hub .copy { background: none; border: 0; color: var(--fgColor-muted); cursor: pointer; padding: 0 4px; }
+.hub .copy:hover { color: var(--fgColor-accent); }
+.hub .mono { font-family: var(--fontStack-monospace, ui-monospace, SFMono-Regular, monospace); font-size: 12px; }
+.hub .tag { font-size: 12px; border: 1px solid var(--borderColor-default); border-radius: 2em; padding: 0 7px; }
+@media (max-width: 1011px) { .hub .hub-layout { grid-template-columns: 1fr; } .hub .hub-side { border-top: 1px solid var(--borderColor-default); padding-top: 16px; } }
+@media (max-width: 543px) { .hub .hub-note { display: none; } .hub .hub-role, .hub .hub-size { width: auto; } .hub .hub-filterbar .form-control { min-width: 0; width: 100%; } }
+/* the site's .btn and link rules are global: undo what Primer does not set itself */
+.hub .btn { min-height: 0; white-space: nowrap; }
+.hub a:hover { text-decoration: none; }
+.hub a.Link--primary:hover, .hub a.Link--muted:hover, .hub .markdown-body a:hover { text-decoration: underline; }
+.hub .markdown-body a { color: var(--fgColor-accent); }
+.hub a.dropdown-item:hover { color: var(--fgColor-onEmphasis); }

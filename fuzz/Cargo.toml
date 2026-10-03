@@ -1,0 +1,57 @@
+# cargo-fuzz targets (nightly): `cargo +nightly fuzz run <target>` from the repository root.
+# Phase A2's exit gate is 24 h of fuzzing with no panic (RFC-0001 §9).
+[package]
+name = "misaka-transport-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+borsh = "1"
+misaka-btv2 = { path = "../crates/misaka-btv2" }
+misaka-bundle = { path = "../crates/misaka-bundle" }
+misaka-transport-ipc = { path = "../crates/misaka-transport-ipc" }
+misaka-transport-policy = { path = "../crates/misaka-transport-policy" }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "descriptor"
+path = "fuzz_targets/descriptor.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "bencode"
+path = "fuzz_targets/bencode.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "info_dict"
+path = "fuzz_targets/info_dict.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "policy"
+path = "fuzz_targets/policy.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "links"
+path = "fuzz_targets/links.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "ipc_frame"
+path = "fuzz_targets/ipc_frame.rs"
+test = false
+doc = false

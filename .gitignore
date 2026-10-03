@@ -1,0 +1,7 @@
+/target
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+/app/src-tauri/target
+/app/src-tauri/binaries
+/app/src-tauri/gen

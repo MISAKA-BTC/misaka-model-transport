@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  misaka-torrentd, desktop profile on macOS (RFC-0001 §6.5): a LaunchAgent run under sandbox-exec
+  with misaka-torrentd.sb. The installer (MISAKA Studio) replaces @HOME@, @BIN@ and @SHARE@ with
+  absolute paths: launchd expands no `~`.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.misaka.torrentd</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/sandbox-exec</string>
+    <string>-D</string><string>BIN=@BIN@/misaka-torrentd</string>
+    <string>-D</string><string>STORE=@HOME@/.misaka/torrent</string>
+    <string>-D</string><string>CONFIG=@HOME@/.misaka/torrent.toml</string>
+    <string>-D</string><string>ADOPT=@HOME@/.misaka/models-adopt</string>
+    <string>-D</string><string>SOCKDIR=@HOME@/.misaka/torrent/run</string>
+    <string>-f</string><string>@SHARE@/misaka-torrentd.sb</string>
+    <string>@BIN@/misaka-torrentd</string>
+    <string>run</string>
+    <string>--profile</string><string>desktop</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>MISAKA_TORRENT_SANDBOX</key>
+    <string>sandbox-exec</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>5</integer>
+  <key>StandardErrorPath</key>
+  <string>@HOME@/.misaka/torrent/state/torrentd.log</string>
+</dict>
+</plist>

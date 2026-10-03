@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en" data-color-mode="dark" data-dark-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MISAKA Model Transport</title>
+<link rel="stylesheet" href="primer-app.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="Header app-header">
+  <div class="Header-item"><span class="app-logo" aria-hidden="true"></span><span class="Header-link f4 text-bold">MISAKA Model Transport</span></div>
+  <div class="Header-item Header-item--full">
+    <nav class="UnderlineNav app-nav" aria-label="Main"><div class="UnderlineNav-body">
+      <a class="UnderlineNav-item" href="#library" data-tab="library" aria-current="page"><svg class="octicon UnderlineNav-octicon" data-icon="database"></svg><span>Library</span><span class="Counter" id="libCount">0</span></a>
+      <a class="UnderlineNav-item" href="#settings" data-tab="settings"><svg class="octicon UnderlineNav-octicon" data-icon="gear"></svg><span>Settings</span></a>
+    </div></nav>
+  </div>
+  <div class="Header-item"><button class="btn btn-sm" id="adoptBtn" title="Seed model files you already have, without copying them"><svg class="octicon" data-icon="file-directory"></svg> Add existing model…</button></div>
+  <div class="Header-item mr-0"><a class="btn btn-sm btn-primary" id="browseBtn" href="https://misakaoptions.com/#/models" target="_blank" rel="noopener"><svg class="octicon" data-icon="search"></svg> Browse models</a></div>
+</header>
+
+<main class="app-main">
+  <div id="flash"></div>
+  <section id="tab-library">
+    <div class="d-flex flex-items-center mb-3 f6 color-fg-muted" id="totals"></div>
+    <div class="Box" id="library"></div>
+  </section>
+  <section id="tab-settings" hidden>
+    <form id="settingsForm" class="Box">
+      <div class="Box-header"><h2 class="Box-title">Bandwidth</h2></div>
+      <div class="Box-body">
+        <div class="form-group"><div class="form-group-header"><label for="sUp">Upload limit (MiB/s, 0 = unlimited)</label></div><div class="form-group-body"><input class="form-control" id="sUp" type="number" min="0" step="0.5"></div></div>
+        <div class="form-group"><div class="form-group-header"><label for="sDown">Download limit (MiB/s, 0 = unlimited)</label></div><div class="form-group-body"><input class="form-control" id="sDown" type="number" min="0" step="0.5"></div></div>
+        <div class="form-group"><div class="form-group-header"><label for="sConn">Connections</label></div><div class="form-group-body"><input class="form-control" id="sConn" type="number" min="1" max="2000"></div></div>
+      </div>
+      <div class="Box-header"><h2 class="Box-title">Sharing</h2></div>
+      <div class="Box-body">
+        <div class="form-checkbox"><label><input type="checkbox" id="sSeed"> Seed completed downloads</label><p class="note">Others download the pieces you hold. Popular models get faster for everyone. Your IP address is visible to peers, as in any BitTorrent swarm.</p></div>
+        <div class="form-checkbox"><label><input type="checkbox" id="sUpnp"> Accept incoming connections (UPnP / NAT-PMP port mapping)</label><p class="note">Lets peers behind other routers reach you. Off means outbound connections only.</p></div>
+        <div class="form-checkbox"><label><input type="checkbox" id="sAuto"> Start at login, in the tray</label><p class="note">Keeps your library seeding after a restart. Closing the window keeps the app running; Quit in the tray stops it.</p></div>
+      </div>
+      <div class="Box-header"><h2 class="Box-title">Model index</h2></div>
+      <div class="Box-body">
+        <div class="form-group mt-0"><div class="form-group-header"><label for="sIndex">Index URL</label></div><div class="form-group-body"><input class="form-control input-monospace width-full" id="sIndex" type="url"></div></div>
+        <p class="note">Where links are looked up. Every downloaded byte is still checked against the bundle commitment the index declares.</p>
+      </div>
+      <div class="Box-footer d-flex flex-items-center"><button class="btn btn-primary" type="submit">Save</button><span class="ml-3 f6 color-fg-muted" id="daemonInfo"></span></div>
+    </form>
+  </section>
+</main>
+
+<div class="app-modal" id="confirm" hidden>
+  <div class="Box app-dialog" role="dialog" aria-modal="true" aria-labelledby="cTitle">
+    <div class="Box-header d-flex flex-items-center"><h2 class="Box-title flex-auto" id="cTitle">Download model?</h2><button class="btn-octicon" id="cClose" aria-label="Close"><svg class="octicon" data-icon="x"></svg></button></div>
+    <div class="Box-body" id="cBody"></div>
+    <div class="Box-footer text-right"><button class="btn mr-2" id="cCancel">Cancel</button><button class="btn btn-primary" id="cOk"><svg class="octicon" data-icon="download"></svg> Download</button></div>
+  </div>
+</div>
+<div class="app-modal" id="removeDlg" hidden>
+  <div class="Box app-dialog" role="dialog" aria-modal="true" aria-labelledby="rTitle">
+    <div class="Box-header"><h2 class="Box-title" id="rTitle">Remove model</h2></div>
+    <div class="Box-body"><p id="rText"></p><div class="form-checkbox"><label><input type="checkbox" id="rDelete"> Also delete its files from disk</label></div></div>
+    <div class="Box-footer text-right"><button class="btn mr-2" id="rCancel">Cancel</button><button class="btn btn-danger" id="rOk">Remove</button></div>
+  </div>
+</div>
+<script src="icons.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

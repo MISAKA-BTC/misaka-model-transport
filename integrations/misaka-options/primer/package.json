@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "description": "Builds ../primer-hub.css: Primer CSS 21.5.1 purged to the model hub and scoped to .hub (dark theme only). Run: npm install && node build.mjs (expects ../../site checkout paths in build.mjs to be adjusted).",
+  "type": "module",
+  "dependencies": {
+    "@primer/css": "21.5.1",
+    "@primer/octicons": "19.38.0",
+    "postcss": "^8",
+    "postcss-prefix-selector": "^2",
+    "purgecss": "^6"
+  }
+}

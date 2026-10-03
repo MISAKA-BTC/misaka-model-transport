@@ -1,0 +1,32 @@
+[package]
+name = "misaka-torrentd"
+description = "The MISAKA Torrent daemon: knows no chain, holds no key, executes nothing (RFC-0001 §6)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[features]
+default = []
+# The real engine. Without it the daemon builds and its state machine is tested over the fake
+# engine, but `run` refuses to start.
+libtorrent = ["misaka-transport-engine/libtorrent"]
+
+[dependencies]
+borsh.workspace = true
+clap.workspace = true
+libc.workspace = true
+misaka-btv2.workspace = true
+misaka-bundle.workspace = true
+misaka-transport-engine.workspace = true
+misaka-transport-ipc.workspace = true
+misaka-transport-policy.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
+seccompiler = "0.5"

@@ -1,0 +1,18 @@
+/* MISAKA Model Transport: layout on top of Primer (primer-app.css). */
+html, body { background: var(--bgColor-default, #0d1117); color: var(--fgColor-default, #f0f6fc); min-height: 100vh; margin: 0; }
+.app-header { position: sticky; top: 0; z-index: 10; padding: 0 16px; background: var(--bgColor-inset, #010409); border-bottom: 1px solid var(--borderColor-default, #3d444d); }
+.app-header .Header-item { margin-right: 12px; }
+.app-logo { width: 22px; height: 22px; margin-right: 8px; border-radius: 6px; background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M7 23V9l9 9 9-9v14' fill='none' stroke='%23f0f6fc' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.app-nav { box-shadow: none; }
+.app-nav .UnderlineNav-item { color: var(--fgColor-default); }
+.app-main { max-width: 1012px; margin: 24px auto; padding: 0 16px; }
+.app-title { max-width: 520px; }
+.app-meta > span { margin-right: 16px; white-space: nowrap; }
+.app-modal { position: fixed; inset: 0; background: #010409cc; display: flex; align-items: flex-start; justify-content: center; padding: 10vh 16px; z-index: 50; }
+.app-modal[hidden] { display: none; }
+.app-dialog { width: min(560px, 100%); box-shadow: 0 0 0 1px var(--borderColor-default), 0 24px 48px #010409; border-radius: 12px; background: var(--overlay-bgColor, #151b23); }
+.app-dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+.app-dl dt { color: var(--fgColor-muted); } .app-dl dd { margin: 0; }
+.octicon { display: inline-block; vertical-align: text-bottom; fill: currentColor; }
+.anim-rotate { animation: app-rot 1s linear infinite; } @keyframes app-rot { to { transform: rotate(360deg); } }
+.form-checkbox .note { margin-top: 2px; }

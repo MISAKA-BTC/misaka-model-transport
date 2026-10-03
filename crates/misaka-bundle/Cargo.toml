@@ -1,0 +1,15 @@
+[package]
+name = "misaka-bundle"
+description = "MISAKA Torrent bundle descriptor (misaka/torrent-bundle/v1), its canonical form and bundle_commitment (RFC-0001 §2.2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blake2b_simd.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

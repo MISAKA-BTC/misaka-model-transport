@@ -1,0 +1,15 @@
+[package]
+name = "misaka-transport-policy"
+description = "The Safe Model Profile v1 of MISAKA Torrent: names, formats, limits, admission and L2 verification (RFC-0001 §5, §4.3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+libc.workspace = true
+misaka-bundle.workspace = true
+misaka-btv2.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
